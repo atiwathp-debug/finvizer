@@ -17,7 +17,11 @@
         var params = new URLSearchParams(l.search)
         var redirect = params.get('redirect')
         if (redirect) {
-          window.history.replaceState(null, '', l.pathname + redirect)
+          // l.pathname here is the base path with a trailing slash (e.g.
+          // "/finvizer/") and redirect starts with "/" (e.g. "/login") —
+          // concatenating directly would produce "/finvizer//login".
+          var base = l.pathname.replace(/\/$/, '')
+          window.history.replaceState(null, '', base + redirect)
         }
       })(window.location)
     </script>
