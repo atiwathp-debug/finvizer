@@ -1,0 +1,66 @@
+name: Deploy to GitHub Pages
+
+# Builds and deploys the Vite app to GitHub Pages on every push to main,
+# and on manual trigger. Requires Settings > Pages > Build and deployment
+# > Source = "GitHub Actions" in this repository (one-time setup, see
+# docs/supabase-setup.md / README "Deploying to GitHub Pages").
+#
+# VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are optional repository
+# secrets — if unset, the deployed build runs in Mock Mode (the app is
+# designed to work fully that way; see src/lib/supabase/client.ts).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; a new push cancels any in-progress run
+# rather than queuing behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run test
+
+      - name: Build (base path = /<repo-name>/, matching a GitHub Pages project site)
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

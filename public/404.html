@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <title>FinVizer</title>
+    <!--
+      GitHub Pages has no server-side rewrites, so a deep link like
+      /documents/123 returns this 404 page. We encode the intended path
+      into a query string and redirect to index.html, where the inline
+      script in index.html restores it via history.replaceState before
+      the app (and its router) boots. See https://github.com/rafgraph/spa-github-pages.
+    -->
+    <script>
+      // repoBaseSegments = 1 for a GitHub Pages project site (https://user.github.io/repo/…).
+      // Set to 0 for a user/org site or a custom domain served from the root.
+      var repoBaseSegments = 1
+      var l = window.location
+      var base = l.pathname.split('/').slice(0, 1 + repoBaseSegments).join('/')
+      var target = l.pathname.slice(base.length) + l.search + l.hash
+      l.replace(l.origin + base + '/?redirect=' + encodeURIComponent(target))
+    </script>
+  </head>
+  <body></body>
+</html>
