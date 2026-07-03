@@ -483,13 +483,31 @@ RFQ -> QUOTATION -> INVOICE -> {RECEIPT, TAX_INVOICE} ->
 {RECEIPT_TAX_INVOICE, CREDIT_NOTE, CREDIT_NOTE_TAX}, never backwards), so
 no sequence of conversions can ever cycle back to a type already visited.
 
-**Why only `APPROVED` sources, not `PAID`**: a `PAID` document represents
-settled money — the same reasoning `create_document_revision()` uses to
-exclude `PAID`. Converting a paid invoice into a new, uncommitted Draft
-receipt with no linkage back to what was actually collected risks
-misrepresenting the transaction; that needs a proper reconciliation
-workflow this phase doesn't build. `DRAFT` and `CANCELLED` sources are
-rejected the same way `APPROVED`-only revision creation rejects them.
+**`APPROVED` or `PAID` sources, extended (production readiness,
+`20260714120000_conversion_after_paid.sql`)**: originally restricted to
+`APPROVED` only, on the same "settled money" reasoning
+`create_document_revision()` uses to exclude `PAID`. In practice this was
+too strict: once `mark_document_paid()`'s cascade (see above) sweeps an
+`INVOICE` to `PAID` when its `RECEIPT` is paid, a `TAX_INVOICE` that
+hadn't been created yet became permanently uncreatable — there was no
+path back to `APPROVED` to unblock it. Conversion and revision are not
+the same risk: a conversion doesn't rewrite the source's own totals or
+history the way a revision could, it only creates a new, independently
+tracked document alongside it. `create_document_conversion` now accepts
+`status in ('APPROVED', 'PAID')`; `DRAFT` and `CANCELLED` sources are
+still rejected, with the same message updated to mention both allowed
+statuses ("แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วหรือชำระแล้วเท่านั้น").
+`create_document_revision` keeps its original `APPROVED`-only
+restriction — this change is scoped to conversion only.
+
+**Known limitation**: a document created via conversion from an
+already-`PAID` source (e.g. a `TAX_INVOICE` created after its `INVOICE`
+was already paid) is still an ordinary `APPROVED` document once approved
+— it is not automatically swept to `PAID` itself, since nothing re-runs
+`mark_document_paid()`'s cascade retroactively for a document that didn't
+exist yet when the receipt was paid. It stays `APPROVED` (visibly
+distinct from the invoice's `PAID` badge) until/unless a future phase
+adds that reconciliation.
 
 **What it copies** (identical list to `create_document_revision()`):
 `customer_id`/`customer_code`, all `document_items` rows, `vat_mode`,
@@ -656,3 +674,13 @@ reads the other's column.
     the receipt again on a fresh chain, and confirm the cancelled sibling
     stays `CANCELLED` (not swept into `PAID`) while the rest of the chain
     still cascades correctly.
+15. Apply `20260714120000_conversion_after_paid.sql`. Using the same
+    chain from step 14 (invoice already `PAID` via its receipt, no
+    `TAX_INVOICE` created yet), confirm
+    `select public.create_document_conversion('<invoice-id>', 'TAX_INVOICE')`
+    now succeeds (previously raised
+    "แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วเท่านั้น" once the invoice left
+    `APPROVED`), returning a `DRAFT` row with `document_type = 'TAX_INVOICE'`
+    and `source_document_id = '<invoice-id>'`. Confirm
+    `create_document_conversion` still raises the (now dual-status)
+    message for a `DRAFT` or `CANCELLED` source.

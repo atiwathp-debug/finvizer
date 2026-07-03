@@ -411,11 +411,14 @@ export function listMockDocumentRevisions(originalDocumentId: string): DocumentR
 /**
  * Mock Mode's equivalent of the real create_document_conversion() RPC —
  * copies customer, line items, VAT mode, note, due_date (payment term),
- * and totals from an APPROVED source into a fresh Draft of a *different*
- * document_type (unlike a revision, which keeps the same type). Only
- * allowed when documentConversionMap permits source -> target, checked
- * server-side here exactly like the real RPC checks it via
- * is_valid_document_conversion() — never trust the UI alone to have
+ * and totals from an APPROVED-or-PAID source into a fresh Draft of a
+ * *different* document_type (unlike a revision, which keeps the same
+ * type). PAID sources are allowed too — a paid INVOICE with no RECEIPT/
+ * TAX_INVOICE on file yet is a real accounting gap this must let a user
+ * close; PAID only blocks editing/cancelling, not downstream document
+ * creation. Only allowed when documentConversionMap permits source ->
+ * target, checked server-side here exactly like the real RPC checks it
+ * via is_valid_document_conversion() — never trust the UI alone to have
  * enforced this.
  */
 export function createMockDocumentConversion(
@@ -428,8 +431,8 @@ export function createMockDocumentConversion(
   if (!source) {
     throw new Error('ไม่พบเอกสาร')
   }
-  if (source.status !== 'APPROVED') {
-    throw new Error('แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วเท่านั้น')
+  if (source.status !== 'APPROVED' && source.status !== 'PAID') {
+    throw new Error('แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วหรือชำระแล้วเท่านั้น')
   }
   if (!canConvertDocumentType(source.documentType, targetType)) {
     throw new Error('ไม่สามารถแปลงเอกสารประเภทนี้เป็นประเภทที่เลือกได้')

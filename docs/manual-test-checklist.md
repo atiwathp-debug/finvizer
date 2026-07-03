@@ -702,6 +702,34 @@ policy-by-policy breakdown and a manual SQL verification recipe.
       raises "บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น" — see
       `docs/rls-policy-notes.md` step 14 for the full cascade verification
 
+### Production readiness fix: conversion still allowed after PAID
+
+> Continuing from the same chain above (`INVOICE` already `PAID` via its
+> `RECEIPT`).
+
+- [ ] On the now-`PAID` `INVOICE`'s detail page, "แปลงเอกสาร" is still
+      visible (previously disappeared entirely once the invoice left
+      `APPROVED`) — clicking it lists only the target types not yet
+      created from this invoice (e.g. if `RECEIPT` already exists,
+      only `TAX_INVOICE` is offered; once both exist, the button
+      disappears since there's nothing left to convert to)
+- [ ] Converting the `PAID` invoice to the missing type (e.g.
+      `TAX_INVOICE`) succeeds exactly like converting an `APPROVED`
+      source — creates a `DRAFT` with `sourceDocumentId` pointing back at
+      the invoice; approving it works normally and gives it its own
+      document number
+- [ ] The newly-created document stays `APPROVED` after approval (not
+      auto-`PAID`) — a known, documented limitation, see
+      `docs/rls-policy-notes.md`'s `create_document_conversion` section
+- [ ] A `DRAFT` or `CANCELLED` source document still cannot be converted
+      — "แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วหรือชำระแล้วเท่านั้น"
+- [ ] "บันทึกว่าชำระแล้ว" still never appears on the `INVOICE` or
+      `TAX_INVOICE` at any point in this flow — payment is only ever
+      recorded through a `RECEIPT`/`RECEIPT_TAX_INVOICE`
+- [ ] `[ ]` (real Supabase only) `select
+      public.create_document_conversion('<paid-invoice-id>', 'TAX_INVOICE')`
+      succeeds — see `docs/rls-policy-notes.md` step 15
+
 ## Privacy / PDPA (Phase 1E) — testable now
 
 > Register/onboard first if you haven't (see Phase 1A/1C above). Test in a

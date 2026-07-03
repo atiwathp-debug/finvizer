@@ -12,7 +12,7 @@ its detailed section below.
 
 - [ ] **1.** Create a Supabase project in the Singapore region (§1)
 - [ ] **2.** Copy the Project URL + anon key into `.env.local` (§2–3)
-- [ ] **3.** Apply all 15 migrations in `supabase/migrations/`, **in
+- [ ] **3.** Apply all migrations in `supabase/migrations/`, **in
       filename order**, via `supabase db push` or the SQL Editor (§4) —
       never skip or reorder one, later migrations reference functions/
       columns earlier ones create
@@ -375,6 +375,23 @@ never carries money owed, and `CREDIT_NOTE`/`CANCELLED` documents are never
 touched, so both stay excluded from the cascade on purpose (see
 `docs/rls-policy-notes.md` for the full RPC breakdown). Mock Mode mirrors
 this exactly (`markMockDocumentPaid` in `src/lib/mock/mockDocuments.ts`).
+
+### Production readiness fix: conversion allowed after PAID
+
+| File | What it does |
+| --- | --- |
+| `20260714120000_conversion_after_paid.sql` | `create or replace function public.create_document_conversion(...)` (same function, same signature) — relaxes the source-status check from `= 'APPROVED'` to `in ('APPROVED', 'PAID')`. |
+
+Apply this after `20260713120000_paid_cascade.sql`. It fixes a real gap the
+paid-cascade migration introduced: once an `INVOICE` is swept to `PAID` by
+`mark_document_paid()`'s cascade (paying its `RECEIPT`), the invoice's
+"แปลงเอกสาร" (convert) action used to disappear entirely — if the
+`TAX_INVOICE` hadn't been created yet before the receipt was paid, there
+was no way to ever create it. `PAID` still blocks editing (no UPDATE grant
+reaches a non-`DRAFT` row) and cancelling (`cancel_document` requires
+`APPROVED`) — only the conversion-eligibility check needed relaxing.
+`src/lib/mock/mockDocuments.ts`'s `createMockDocumentConversion()` mirrors
+this exactly.
 
 After applying, verify with:
 

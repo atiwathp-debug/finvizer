@@ -254,6 +254,15 @@ export function DocumentDetailPage() {
   }
 
   const customer = customers.find((c) => c.id === document.customerId)
+  // PAID blocks editing/cancelling but must not block valid downstream
+  // conversion (e.g. a paid INVOICE with no RECEIPT/TAX_INVOICE yet) —
+  // see supabase/migrations/20260714120000_conversion_after_paid.sql.
+  // Target types already converted-to are excluded so the dialog never
+  // offers a duplicate of a conversion that already exists.
+  const isConvertibleStatus = document.status === 'APPROVED' || document.status === 'PAID'
+  const availableConversionTargets = documentConversionMap[document.documentType].filter(
+    (targetType) => !conversions.some((converted) => converted.documentType === targetType),
+  )
   const totals: DocumentTotalsResult = {
     itemAmounts: document.items.map((item) => item.amount),
     subtotal: document.subtotal,
@@ -303,7 +312,7 @@ export function DocumentDetailPage() {
                 สร้าง Revision
               </Button>
             )}
-            {document.status === 'APPROVED' && documentConversionMap[document.documentType].length > 0 && canEdit && (
+            {isConvertibleStatus && availableConversionTargets.length > 0 && canEdit && (
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -472,7 +481,7 @@ export function DocumentDetailPage() {
               aria-label="ประเภทเอกสารปลายทาง"
             >
               <option value="">เลือกประเภทเอกสาร</option>
-              {documentConversionMap[document.documentType].map((targetType) => (
+              {availableConversionTargets.map((targetType) => (
                 <option key={targetType} value={targetType}>
                   {documentTypeLabels[targetType]}
                 </option>

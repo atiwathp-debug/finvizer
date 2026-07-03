@@ -955,7 +955,7 @@ describe('createMockDocumentConversion', () => {
     const draft = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
 
     expect(() => createMockDocumentConversion(draft.id, 'INVOICE', 'user-1')).toThrow(
-      'แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วเท่านั้น',
+      'แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วหรือชำระแล้วเท่านั้น',
     )
   })
 
@@ -966,12 +966,27 @@ describe('createMockDocumentConversion', () => {
     cancelMockDocument(approved.id, 'user-1')
 
     expect(() => createMockDocumentConversion(approved.id, 'INVOICE', 'user-1')).toThrow(
-      'แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วเท่านั้น',
+      'แปลงเอกสารได้เฉพาะเอกสารที่อนุมัติแล้วหรือชำระแล้วเท่านั้น',
     )
   })
 
   it('throws for an unknown source document id', () => {
     expect(() => createMockDocumentConversion('missing-id', 'INVOICE', 'user-1')).toThrow('ไม่พบเอกสาร')
+  })
+
+  it('allows converting a PAID invoice to RECEIPT and TAX_INVOICE — PAID must not block downstream document creation', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const invoice = approveMockDraftDocument(createMockDraftDocument(company.id, 'INVOICE', 'user-1').id, 'user-1')
+    const receipt = approveMockDraftDocument(createMockDocumentConversion(invoice.id, 'RECEIPT', 'user-1').id, 'user-1')
+    markMockDocumentPaid(receipt.id, 'user-1')
+    expect(getMockDocumentById(invoice.id)?.status).toBe('PAID')
+
+    const taxInvoice = createMockDocumentConversion(invoice.id, 'TAX_INVOICE', 'user-1')
+
+    expect(taxInvoice.documentType).toBe('TAX_INVOICE')
+    expect(taxInvoice.status).toBe('DRAFT')
+    expect(taxInvoice.sourceDocumentId).toBe(invoice.id)
   })
 
   it('records a CONVERT_DOCUMENT entry in the new document\'s timeline', () => {
