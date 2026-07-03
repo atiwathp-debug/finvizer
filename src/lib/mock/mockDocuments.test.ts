@@ -444,7 +444,14 @@ describe('saveMockDocumentDraft', () => {
     const company = setupCompany()
     saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
     const customer = createMockCustomer(company.id, 'user-1', customerInput)
-    const draft = saveMockDocumentDraft(null, company.id, 'user-1', { ...formInput, customerId: customer.id }, customer)
+    // documentType overridden to RECEIPT — only receipts can be marked paid.
+    const draft = saveMockDocumentDraft(
+      null,
+      company.id,
+      'user-1',
+      { ...formInput, documentType: 'RECEIPT', customerId: customer.id },
+      customer,
+    )
     approveMockDraftDocument(draft.id, 'user-1')
     markMockDocumentPaid(draft.id, 'user-1')
 
@@ -468,11 +475,11 @@ describe('saveMockDocumentDraft', () => {
 })
 
 describe('markMockDocumentPaid', () => {
-  it('flips an APPROVED document to PAID without touching its document_number', () => {
+  it('flips an APPROVED RECEIPT to PAID without touching its document_number', () => {
     const company = setupCompany()
     saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
     const approved = approveMockDraftDocument(
-      createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id,
+      createMockDraftDocument(company.id, 'RECEIPT', 'user-1').id,
       'user-1',
     )
 
@@ -484,7 +491,7 @@ describe('markMockDocumentPaid', () => {
 
   it('refuses to mark a DRAFT as paid', () => {
     const company = setupCompany()
-    const draft = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
+    const draft = createMockDraftDocument(company.id, 'RECEIPT', 'user-1')
 
     expect(() => markMockDocumentPaid(draft.id, 'user-1')).toThrow('บันทึกชำระเงินได้เฉพาะเอกสารที่อนุมัติแล้วเท่านั้น')
   })
@@ -493,7 +500,7 @@ describe('markMockDocumentPaid', () => {
     const company = setupCompany()
     saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
     const approved = approveMockDraftDocument(
-      createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id,
+      createMockDraftDocument(company.id, 'RECEIPT', 'user-1').id,
       'user-1',
     )
     markMockDocumentPaid(approved.id, 'user-1')
@@ -503,6 +510,70 @@ describe('markMockDocumentPaid', () => {
 
   it('throws for an unknown document id', () => {
     expect(() => markMockDocumentPaid('missing-id', 'user-1')).toThrow('ไม่พบเอกสาร')
+  })
+
+  it.each(['RFQ', 'QUOTATION', 'INVOICE', 'TAX_INVOICE', 'CREDIT_NOTE', 'CREDIT_NOTE_TAX'] as const)(
+    'refuses to mark an APPROVED %s as paid — only receipts represent money collected',
+    (documentType) => {
+      const company = setupCompany()
+      saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+      const approved = approveMockDraftDocument(
+        createMockDraftDocument(company.id, documentType, 'user-1').id,
+        'user-1',
+      )
+
+      expect(() => markMockDocumentPaid(approved.id, 'user-1')).toThrow('บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น')
+    },
+  )
+
+  it('cascades PAID through the full document chain: QUOTATION stays APPROVED, INVOICE and sibling TAX_INVOICE become PAID', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const quotation = approveMockDraftDocument(createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id, 'user-1')
+    const invoice = approveMockDraftDocument(createMockDocumentConversion(quotation.id, 'INVOICE', 'user-1').id, 'user-1')
+    const receipt = approveMockDraftDocument(createMockDocumentConversion(invoice.id, 'RECEIPT', 'user-1').id, 'user-1')
+    const taxInvoice = approveMockDraftDocument(
+      createMockDocumentConversion(invoice.id, 'TAX_INVOICE', 'user-1').id,
+      'user-1',
+    )
+
+    markMockDocumentPaid(receipt.id, 'user-1')
+
+    expect(getMockDocumentById(receipt.id)?.status).toBe('PAID')
+    expect(getMockDocumentById(invoice.id)?.status).toBe('PAID')
+    expect(getMockDocumentById(taxInvoice.id)?.status).toBe('PAID')
+    // QUOTATION never carries money owed, so it's excluded from the cascade.
+    expect(getMockDocumentById(quotation.id)?.status).toBe('APPROVED')
+  })
+
+  it('never cascades onto a CANCELLED sibling — it stays terminal', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const invoice = approveMockDraftDocument(createMockDraftDocument(company.id, 'INVOICE', 'user-1').id, 'user-1')
+    const receipt = approveMockDraftDocument(createMockDocumentConversion(invoice.id, 'RECEIPT', 'user-1').id, 'user-1')
+    const taxInvoice = approveMockDraftDocument(
+      createMockDocumentConversion(invoice.id, 'TAX_INVOICE', 'user-1').id,
+      'user-1',
+    )
+    cancelMockDocument(taxInvoice.id, 'user-1')
+
+    markMockDocumentPaid(receipt.id, 'user-1')
+
+    expect(getMockDocumentById(invoice.id)?.status).toBe('PAID')
+    expect(getMockDocumentById(taxInvoice.id)?.status).toBe('CANCELLED')
+  })
+
+  it('records a cascaded MARK_DOCUMENT_PAID audit entry on the related document, tagged with cascadedFrom', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const invoice = approveMockDraftDocument(createMockDraftDocument(company.id, 'INVOICE', 'user-1').id, 'user-1')
+    const receipt = approveMockDraftDocument(createMockDocumentConversion(invoice.id, 'RECEIPT', 'user-1').id, 'user-1')
+
+    markMockDocumentPaid(receipt.id, 'user-1')
+
+    const invoiceLogs = listMockAuditLogsForEntity('document', invoice.id)
+    const cascadedLog = invoiceLogs.find((l) => l.action === 'MARK_DOCUMENT_PAID')
+    expect(cascadedLog?.metadata).toMatchObject({ cascadedFrom: receipt.documentNumber })
   })
 })
 
@@ -532,7 +603,7 @@ describe('cancelMockDocument', () => {
     const company = setupCompany()
     saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
     const approved = approveMockDraftDocument(
-      createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id,
+      createMockDraftDocument(company.id, 'RECEIPT', 'user-1').id,
       'user-1',
     )
     markMockDocumentPaid(approved.id, 'user-1')
@@ -942,7 +1013,7 @@ describe('document activity timeline (Phase 6A)', () => {
   it('records approve/paid/cancel/revision events for the correct document ids', () => {
     const company = setupCompany()
     saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
-    const draft = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
+    const draft = createMockDraftDocument(company.id, 'RECEIPT', 'user-1')
     const approved = approveMockDraftDocument(draft.id, 'user-1')
 
     expect(listMockAuditLogsForEntity('document', approved.id).map((l) => l.action)).toEqual([

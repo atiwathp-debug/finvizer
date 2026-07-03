@@ -438,8 +438,14 @@ policy-by-policy breakdown and a manual SQL verification recipe.
       "ไม่สามารถแก้ไขได้" — Approved documents are read-only for editing
 - [ ] The generated document number never changes afterwards, no matter
       what other status transitions happen next (mark paid, cancel)
-- [ ] On an Approved document, "บันทึกว่าชำระแล้ว" and "ยกเลิกเอกสาร" buttons
-      are visible to `OWNER`/`ADMIN`/`ACCOUNTANT` only
+- [ ] On an Approved **RECEIPT or RECEIPT_TAX_INVOICE**, "บันทึกว่าชำระแล้ว"
+      is visible to `OWNER`/`ADMIN`/`ACCOUNTANT` only; on an Approved
+      `QUOTATION`, `INVOICE`, `TAX_INVOICE`, `CREDIT_NOTE`, or
+      `CREDIT_NOTE_TAX`, "บันทึกว่าชำระแล้ว" is **never** shown, even to an
+      `OWNER` — only receipts represent money actually collected (see
+      "Production readiness" below)
+- [ ] "ยกเลิกเอกสาร" is visible on any Approved document to
+      `OWNER`/`ADMIN`/`ACCOUNTANT`, regardless of document type
 - [ ] "บันทึกว่าชำระแล้ว" flips the status to "ชำระแล้ว" (`StatusBadge`
       turns green) and shows a success toast; the document is still
       read-only, and no status-action buttons remain
@@ -622,41 +628,79 @@ policy-by-policy breakdown and a manual SQL verification recipe.
       shows its own static Thai demo data, not real entries (only the
       document timeline reads real ones this phase)
 
-## Dashboard & Reports (Phase 6A) — testable now
+## Dashboard & Reports (Phase 6A, rewritten for production readiness) — testable now
 
-> Create at least a few documents across different statuses (Draft,
-> Approved, Paid, Cancelled) first for the stats/charts to show anything
-> meaningful.
+> Create at least a few documents across different statuses and types
+> (Draft, Approved, Paid, Cancelled; some QUOTATION → INVOICE → RECEIPT
+> chains) first for the stats/charts to show anything meaningful.
 
-- [ ] `/dashboard` shows 5 stat cards computed from real/mock saved
-      documents: เอกสารทั้งหมด (total count), ฉบับร่าง (draft count),
-      อนุมัติแล้ว (ค้างชำระ) (sum of grandTotal for Approved documents),
-      ยอดขายที่ชำระแล้ว (sum of grandTotal for Paid documents), ยกเลิก
-      (cancelled count) — a skeleton shows briefly on first load
-- [ ] "เอกสารแยกตามสถานะ" bar chart shows one bar per status with the
-      correct count, matching the stat cards
-- [ ] "ยอดรวมรายเดือน" bar chart shows the last 6 months, summing
-      grandTotal for Approved/Paid documents by issue month; Draft and
-      Cancelled documents are excluded from this total
-- [ ] "ลูกค้าที่มียอดสูงสุด" lists customers ranked by total Approved+Paid
-      grandTotal, each showing their document count; a customer with only
-      Draft or Cancelled documents does not appear
-- [ ] "เอกสารล่าสุด" shows the 5 most recently created documents with
-      working links to each detail page; "ดูทั้งหมด" navigates to
-      `/documents`
-- [ ] Creating a new document, approving it, or marking it paid and
-      returning to the dashboard reflects the updated counts/totals after
-      a reload
-- [ ] With zero documents in the company, stat cards show 0/฿0.00, both
-      charts render empty without erroring, and "ยังไม่มียอดขายที่อนุมัติ
-      หรือชำระแล้ว" / "ยังไม่มีเอกสาร" empty states show instead of blank
-      tables
+- [ ] `/dashboard` shows a date-range filter (defaulting to today back 3
+      months) above everything else, and exactly 3 stat cards computed
+      from **INVOICE documents only**: จำนวนเอกสารที่รอการอนุมัติ (count of
+      `DRAFT` documents of any type, within range), ยอดขายที่ออกใบแจ้งหนี้
+      (sum of `grandTotal` for `INVOICE` documents with status
+      `APPROVED` or `PAID`, within range), ยอดขายที่มีการชำระเงินแล้ว (sum
+      of `grandTotal` for `INVOICE` documents with status `PAID`, within
+      range) — a skeleton shows briefly on first load
+- [ ] The bar chart compares ออกใบแจ้งหนี้ vs ชำระแล้ว per month, computed
+      from `INVOICE` documents only — a `RECEIPT` or `QUOTATION` never
+      contributes to either series
+- [ ] "ลูกค้าที่มียอดขายสูงสุด" and "ลูกค้าที่ซื้อบ่อยที่สุด" are both
+      computed from `INVOICE` documents only (`APPROVED`/`PAID`), sorted
+      by total amount and by document count respectively — a customer
+      with only `RECEIPT`/`QUOTATION`/Draft/Cancelled documents does not
+      appear in either list
+- [ ] "ติดตามสถานะใบเสนอราคา" lists every `QUOTATION` within the selected
+      date range with a derived status badge: ฉบับร่าง (Draft),
+      อนุมัติแล้ว รอแปลงเป็นใบแจ้งหนี้ (Approved, no conversion yet),
+      แปลงเป็นใบแจ้งหนี้แล้ว (converted to an `APPROVED` `INVOICE`),
+      ชำระแล้ว (the converted `INVOICE` is `PAID`), ยกเลิก (Cancelled) —
+      this status is derived, never stored
+- [ ] Narrowing the date range updates every card/chart/list on the page;
+      widening it back out restores the previously hidden documents
+      (verify by picking a range that excludes a known document, then a
+      range that includes it again)
+- [ ] A quotation issued outside the selected date range but converted to
+      an invoice that was later paid still resolves correctly if the
+      quotation itself is brought into range — the tracking table always
+      resolves against the full document set, not just the visible range
+- [ ] With zero documents in the company (or none in the selected range),
+      stat cards show 0/฿0.00, the chart renders empty without erroring,
+      and the customer lists / quotation table show empty states instead
+      of blank content
 - [ ] Mock Mode: dashboard stats compute correctly against
       `finvizer_mock_documents` with no Supabase project connected
 - [ ] `[ ]` (real Supabase only) Same dashboard queries work unchanged
       against documents loaded from Supabase — `listDocuments()`/
       `listCustomers()` are the same calls `/documents` and `/customers`
       already use, just aggregated client-side
+
+## Production readiness: Paid-status cascade & outstanding calculation — testable now
+
+> Requires a full QUOTATION → INVOICE → {RECEIPT, TAX_INVOICE} conversion
+> chain (Phase 6A conversion) with every step approved.
+
+- [ ] "บันทึกว่าชำระแล้ว" only ever appears on an Approved `RECEIPT` or
+      `RECEIPT_TAX_INVOICE` — confirmed above in the Phase 4B section
+- [ ] Marking an Approved `RECEIPT` paid also flips its source `INVOICE`
+      to `PAID`, and any sibling `TAX_INVOICE`/`RECEIPT_TAX_INVOICE`
+      converted from that same `INVOICE` to `PAID` as well — revisit each
+      document's own detail page to confirm the `StatusBadge`
+- [ ] The `QUOTATION` at the start of that same chain stays `APPROVED` —
+      it is never auto-marked paid
+- [ ] A sibling document that was separately `CANCELLED` before the
+      receipt was paid stays `CANCELLED` — the cascade never overrides a
+      terminal status
+- [ ] Each cascaded document's "ประวัติกิจกรรม" timeline shows its own
+      `MARK_DOCUMENT_PAID` entry, distinguishable from the RECEIPT's own
+      entry
+- [ ] Outstanding/unpaid amounts (the Dashboard's ยอดขายที่ออกใบแจ้งหนี้
+      minus ยอดขายที่มีการชำระเงินแล้ว) drop to reflect the newly-`PAID`
+      invoice immediately after the cascade — no separate action needed
+- [ ] `[ ]` (real Supabase only) `select public.mark_document_paid('<id>')`
+      on an Approved `INVOICE`/`TAX_INVOICE`/`QUOTATION`/`CREDIT_NOTE`
+      raises "บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น" — see
+      `docs/rls-policy-notes.md` step 14 for the full cascade verification
 
 ## Privacy / PDPA (Phase 1E) — testable now
 

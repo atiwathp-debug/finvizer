@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { canApproveDocument, canEditDocument } from './documentPermissions'
+import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from './documentPermissions'
+import type { DocumentType } from '@/types/document'
 import type { MemberRole } from '@/types/member'
 
 describe('canApproveDocument', () => {
@@ -45,5 +46,36 @@ describe('canEditDocument', () => {
   // row as far as permissions are concerned.
   it('does not allow VIEWER to create or edit a revision Draft', () => {
     expect(canEditDocument('VIEWER')).toBe(false)
+  })
+})
+
+describe('canMarkDocumentPaid', () => {
+  it.each<DocumentType>(['RECEIPT', 'RECEIPT_TAX_INVOICE'])(
+    'allows an APPROVED %s to be marked paid by an approver',
+    (documentType) => {
+      expect(canMarkDocumentPaid(documentType, 'APPROVED', 'ACCOUNTANT')).toBe(true)
+    },
+  )
+
+  it.each<DocumentType>(['RFQ', 'QUOTATION', 'INVOICE', 'TAX_INVOICE', 'CREDIT_NOTE', 'CREDIT_NOTE_TAX'])(
+    'never allows a %s to be marked paid, even when APPROVED and the user can approve',
+    (documentType) => {
+      expect(canMarkDocumentPaid(documentType, 'APPROVED', 'OWNER')).toBe(false)
+    },
+  )
+
+  it('does not allow marking paid unless the document is APPROVED', () => {
+    expect(canMarkDocumentPaid('RECEIPT', 'DRAFT', 'OWNER')).toBe(false)
+    expect(canMarkDocumentPaid('RECEIPT', 'PAID', 'OWNER')).toBe(false)
+    expect(canMarkDocumentPaid('RECEIPT', 'CANCELLED', 'OWNER')).toBe(false)
+  })
+
+  it('does not allow EDITOR or VIEWER to mark a receipt paid', () => {
+    expect(canMarkDocumentPaid('RECEIPT', 'APPROVED', 'EDITOR')).toBe(false)
+    expect(canMarkDocumentPaid('RECEIPT', 'APPROVED', 'VIEWER')).toBe(false)
+  })
+
+  it('does not allow a user with no membership in the company', () => {
+    expect(canMarkDocumentPaid('RECEIPT', 'APPROVED', null)).toBe(false)
   })
 })

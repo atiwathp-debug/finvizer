@@ -485,7 +485,48 @@ export function listMockDocumentConversions(sourceDocumentId: string): DocumentR
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 }
 
-/** Mock Mode's equivalent of the real mark_document_paid() RPC — APPROVED -> PAID only. */
+const PAYABLE_DOCUMENT_TYPES: DocumentType[] = ['RECEIPT', 'RECEIPT_TAX_INVOICE']
+const CASCADE_PAID_DOCUMENT_TYPES: DocumentType[] = ['INVOICE', 'TAX_INVOICE', 'RECEIPT', 'RECEIPT_TAX_INVOICE']
+
+/**
+ * Every document connected to `documentId` via source_document_id, walked
+ * in both directions (ancestors and descendants), excluding `documentId`
+ * itself. Mirrors the recursive CTE in the real mark_document_paid() RPC
+ * (supabase/migrations/20260713120000_paid_cascade.sql) — same shape, just
+ * over the in-memory array instead of SQL.
+ */
+function findConnectedDocuments(documents: DocumentRecord[], documentId: string): DocumentRecord[] {
+  const byId = new Map(documents.map((d) => [d.id, d]))
+  const chain = new Set<string>([documentId])
+  let frontier = [documentId]
+  while (frontier.length > 0) {
+    const next: string[] = []
+    for (const id of frontier) {
+      const doc = byId.get(id)
+      if (doc?.sourceDocumentId && !chain.has(doc.sourceDocumentId)) {
+        chain.add(doc.sourceDocumentId)
+        next.push(doc.sourceDocumentId)
+      }
+      for (const candidate of documents) {
+        if (candidate.sourceDocumentId === id && !chain.has(candidate.id)) {
+          chain.add(candidate.id)
+          next.push(candidate.id)
+        }
+      }
+    }
+    frontier = next
+  }
+  chain.delete(documentId)
+  return documents.filter((d) => chain.has(d.id))
+}
+
+/**
+ * Mock Mode's equivalent of the real mark_document_paid() RPC — APPROVED ->
+ * PAID, restricted to RECEIPT/RECEIPT_TAX_INVOICE (the only document types
+ * that represent money actually collected), and cascades PAID to every
+ * other APPROVED INVOICE/TAX_INVOICE/RECEIPT/RECEIPT_TAX_INVOICE connected
+ * to it through the conversion chain — see findConnectedDocuments() above.
+ */
 export function markMockDocumentPaid(documentId: string, actorId: string): DocumentRecord {
   const documents = readDocuments()
   const index = documents.findIndex((d) => d.id === documentId)
@@ -495,12 +536,27 @@ export function markMockDocumentPaid(documentId: string, actorId: string): Docum
   if (documents[index].status !== 'APPROVED') {
     throw new Error('บันทึกชำระเงินได้เฉพาะเอกสารที่อนุมัติแล้วเท่านั้น')
   }
+  if (!PAYABLE_DOCUMENT_TYPES.includes(documents[index].documentType)) {
+    throw new Error('บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น')
+  }
+  const now = new Date().toISOString()
   const updated: DocumentRecord = {
     ...documents[index],
     status: 'PAID',
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   }
   documents[index] = updated
+
+  const connected = findConnectedDocuments(documents, documentId)
+  const cascaded: DocumentRecord[] = []
+  for (const related of connected) {
+    if (related.status !== 'APPROVED' || !CASCADE_PAID_DOCUMENT_TYPES.includes(related.documentType)) continue
+    const relatedIndex = documents.findIndex((d) => d.id === related.id)
+    const paidRelated: DocumentRecord = { ...related, status: 'PAID', updatedAt: now }
+    documents[relatedIndex] = paidRelated
+    cascaded.push(paidRelated)
+  }
+
   writeDocuments(documents)
 
   appendMockAuditLog({
@@ -511,6 +567,16 @@ export function markMockDocumentPaid(documentId: string, actorId: string): Docum
     entityId: updated.id,
     metadata: { documentNumber: updated.documentNumber },
   })
+  for (const paidRelated of cascaded) {
+    appendMockAuditLog({
+      companyId: paidRelated.companyId,
+      actorId,
+      action: 'MARK_DOCUMENT_PAID',
+      entityType: 'document',
+      entityId: paidRelated.id,
+      metadata: { documentNumber: paidRelated.documentNumber, cascadedFrom: updated.documentNumber },
+    })
+  }
 
   return updated
 }

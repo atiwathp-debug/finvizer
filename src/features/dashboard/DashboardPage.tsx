@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Ban, BadgeCheck, FileStack, FilePlus2, Wallet } from 'lucide-react'
+import { BadgeCheck, FileClock, Wallet } from 'lucide-react'
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,45 +16,50 @@ import { StatCardSkeleton, TableSkeleton } from '@/components/shared/LoadingSkel
 import { DataTable, type DataTableColumn } from '@/components/shared/DataTable'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
-import { StatusBadge } from '@/components/shared/StatusBadge'
-import { Button } from '@/components/ui/Button'
+import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
+import { Badge } from '@/components/ui/Badge'
 import { listDocuments } from '@/lib/supabase/documents'
 import { listCustomers } from '@/lib/supabase/customers'
 import { useCompanyStore } from '@/stores/companyStore'
 import {
-  computeDashboardStats,
-  customerTotals,
-  groupDocumentsByStatus,
-  monthlyTotals,
-  recentDocuments,
+  defaultDashboardDateRange,
+  filterDocumentsByDateRange,
+  invoicedSalesTotal,
+  invoicedVsPaidMonthly,
+  paidSalesTotal,
+  pendingApprovalCount,
+  topCustomersByAmount,
+  topCustomersByFrequency,
+  trackQuotationStatuses,
+  type QuotationTracking,
+  type QuotationTrackingStatus,
 } from '@/lib/reports/documentReports'
-import { documentStatusLabels, documentTypeLabels, type DocumentRecord } from '@/types/document'
-import { formatTHB, formatThaiDate } from '@/lib/utils/currency'
+import { formatThaiDate, formatTHB } from '@/lib/utils/currency'
+import type { DocumentRecord } from '@/types/document'
 import type { Customer } from '@/types/customer'
 
-const statusOrder = ['DRAFT', 'APPROVED', 'PAID', 'CANCELLED'] as const
+const quotationTrackingLabels: Record<QuotationTrackingStatus, string> = {
+  DRAFT: 'ฉบับร่าง',
+  APPROVED: 'อนุมัติแล้ว รอแปลงเป็นใบแจ้งหนี้',
+  CONVERTED_TO_INVOICE: 'แปลงเป็นใบแจ้งหนี้แล้ว',
+  PAID: 'ชำระแล้ว',
+  CANCELLED: 'ยกเลิก',
+}
 
-const documentColumns: DataTableColumn<DocumentRecord>[] = [
-  {
-    key: 'number',
-    header: 'เลขที่เอกสาร',
-    render: (row) => (
-      <Link to={`/documents/${row.id}`} className="font-medium text-brand-700 hover:underline">
-        {row.documentNumber ?? 'จะออกเลขเมื่ออนุมัติ'}
-      </Link>
-    ),
-  },
-  { key: 'type', header: 'ประเภท', render: (row) => documentTypeLabels[row.documentType] },
-  { key: 'date', header: 'วันที่', render: (row) => formatThaiDate(row.issueDate) },
-  { key: 'status', header: 'สถานะ', render: (row) => <StatusBadge status={row.status} /> },
-  { key: 'total', header: 'ยอดรวม', align: 'right', render: (row) => formatTHB(row.grandTotal) },
-]
+const quotationTrackingTone: Record<QuotationTrackingStatus, 'neutral' | 'brand' | 'success' | 'danger' | 'warning'> = {
+  DRAFT: 'neutral',
+  APPROVED: 'brand',
+  CONVERTED_TO_INVOICE: 'warning',
+  PAID: 'success',
+  CANCELLED: 'danger',
+}
 
 export function DashboardPage() {
   const company = useCompanyStore((state) => state.company)
   const [documents, setDocuments] = useState<DocumentRecord[] | null>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [dateRange, setDateRange] = useState(() => defaultDashboardDateRange())
 
   const load = useCallback(async () => {
     if (!company) return
@@ -88,136 +93,157 @@ export function DashboardPage() {
   }
 
   const isLoading = documents === null
-  const stats = isLoading ? null : computeDashboardStats(documents)
-  const statusCounts = isLoading ? null : groupDocumentsByStatus(documents)
-  const statusChartData = statusCounts
-    ? statusOrder.map((status) => ({ status, label: documentStatusLabels[status], count: statusCounts[status] }))
-    : []
-  const monthly = isLoading ? [] : monthlyTotals(documents)
-  const topCustomers = isLoading
+  const filtered = isLoading ? [] : filterDocumentsByDateRange(documents, dateRange.start, dateRange.end)
+
+  const pendingCount = isLoading ? 0 : pendingApprovalCount(filtered)
+  const invoiced = isLoading ? 0 : invoicedSalesTotal(filtered)
+  const paid = isLoading ? 0 : paidSalesTotal(filtered)
+  const monthly = isLoading ? [] : invoicedVsPaidMonthly(filtered)
+  const byAmount = isLoading
     ? []
-    : customerTotals(documents).map((entry) => ({
+    : topCustomersByAmount(filtered).map((entry) => ({
         ...entry,
         name: customerNameById.get(entry.customerId) ?? 'ลูกค้าที่ถูกลบ',
       }))
-  const recent = isLoading ? [] : recentDocuments(documents)
+  const byFrequency = isLoading
+    ? []
+    : topCustomersByFrequency(filtered).map((entry) => ({
+        ...entry,
+        name: customerNameById.get(entry.customerId) ?? 'ลูกค้าที่ถูกลบ',
+      }))
+  const quotationsInRange = isLoading ? [] : filtered.filter((d) => d.documentType === 'QUOTATION')
+  const quotationTracking = isLoading ? [] : trackQuotationStatuses(documents, quotationsInRange)
+
+  const quotationColumns: DataTableColumn<QuotationTracking>[] = [
+    {
+      key: 'number',
+      header: 'เลขที่เอกสาร',
+      render: (row) => (
+        <span className="font-medium text-ink">{row.document.documentNumber ?? 'จะออกเลขเมื่ออนุมัติ'}</span>
+      ),
+    },
+    {
+      key: 'customer',
+      header: 'ลูกค้า',
+      render: (row) => customerNameById.get(row.document.customerId ?? '') ?? 'ลูกค้าที่ถูกลบ',
+    },
+    { key: 'date', header: 'วันที่', render: (row) => formatThaiDate(row.document.issueDate) },
+    {
+      key: 'status',
+      header: 'สถานะ',
+      render: (row) => <Badge tone={quotationTrackingTone[row.trackingStatus]}>{quotationTrackingLabels[row.trackingStatus]}</Badge>,
+    },
+  ]
 
   return (
     <div className="space-y-6">
       <PageHeader title="แดชบอร์ด" description="ภาพรวมเอกสารและยอดขายของบริษัทคุณ" />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {isLoading || !stats ? (
+      <div className="rounded-2xl border border-line bg-white p-4 sm:p-5">
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {isLoading ? (
           <>
-            <StatCardSkeleton />
-            <StatCardSkeleton />
             <StatCardSkeleton />
             <StatCardSkeleton />
             <StatCardSkeleton />
           </>
         ) : (
           <>
-            <StatCard label="เอกสารทั้งหมด" value={`${stats.totalDocuments} ฉบับ`} icon={FileStack} tone="brand" />
-            <StatCard label="ฉบับร่าง" value={`${stats.draftCount} ฉบับ`} icon={FilePlus2} tone="accent" />
-            <StatCard
-              label="อนุมัติแล้ว (ค้างชำระ)"
-              value={formatTHB(stats.outstandingAmount)}
-              icon={BadgeCheck}
-              tone="brand"
-            />
-            <StatCard label="ยอดขายที่ชำระแล้ว" value={formatTHB(stats.totalRevenue)} icon={Wallet} tone="brand" />
-            <StatCard label="ยกเลิก" value={`${stats.cancelledCount} ฉบับ`} icon={Ban} tone="accent" />
+            <StatCard label="จำนวนเอกสารที่รอการอนุมัติ" value={`${pendingCount} ฉบับ`} icon={FileClock} tone="accent" />
+            <StatCard label="ยอดขายที่ออกใบแจ้งหนี้" value={formatTHB(invoiced)} icon={BadgeCheck} tone="brand" />
+            <StatCard label="ยอดขายที่มีการชำระเงินแล้ว" value={formatTHB(paid)} icon={Wallet} tone="brand" />
           </>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white p-5">
+        <h2 className="text-sm font-medium text-ink">ใบแจ้งหนี้: ยอดออกใบแจ้งหนี้ เทียบกับ ยอดที่ชำระแล้ว</h2>
+        <div className="mt-4 h-64">
+          {isLoading ? (
+            <TableSkeleton rows={4} />
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthly} margin={{ left: -20, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <YAxis
+                  tick={{ fontSize: 12, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(value: number) => `${value / 1000}k`}
+                />
+                <Tooltip
+                  formatter={(value) => formatTHB(Number(value))}
+                  contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', fontSize: 13 }}
+                />
+                <Legend formatter={(value) => (value === 'invoiced' ? 'ออกใบแจ้งหนี้' : 'ชำระแล้ว')} />
+                <Bar dataKey="invoiced" name="invoiced" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="paid" name="paid" fill="#10b981" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-line bg-white p-5">
-          <h2 className="text-sm font-medium text-ink">เอกสารแยกตามสถานะ</h2>
-          <div className="mt-4 h-64">
-            {isLoading ? (
-              <TableSkeleton rows={4} />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={statusChartData} margin={{ left: -20, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip
-                    formatter={(value) => [`${value} ฉบับ`, 'จำนวน']}
-                    contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', fontSize: 13 }}
-                  />
-                  <Bar dataKey="count" fill="#4f46e5" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+        <div className="space-y-3">
+          <h2 className="text-sm font-medium text-ink">ลูกค้าที่มียอดขายสูงสุด</h2>
+          {isLoading ? (
+            <TableSkeleton rows={3} />
+          ) : byAmount.length === 0 ? (
+            <EmptyState icon={Wallet} title="ยังไม่มียอดขายจากใบแจ้งหนี้" />
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-line bg-white">
+              <ul className="divide-y divide-line">
+                {byAmount.map((entry) => (
+                  <li key={entry.customerId} className="flex items-center justify-between gap-4 p-4">
+                    <div>
+                      <p className="text-sm font-medium text-ink">{entry.name}</p>
+                      <p className="text-xs text-ink-muted">{entry.documentCount} ฉบับ</p>
+                    </div>
+                    <p className="text-sm font-semibold text-ink">{formatTHB(entry.total)}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
-        <div className="rounded-2xl border border-line bg-white p-5">
-          <h2 className="text-sm font-medium text-ink">ยอดรวมรายเดือน (อนุมัติแล้ว/ชำระแล้ว)</h2>
-          <div className="mt-4 h-64">
-            {isLoading ? (
-              <TableSkeleton rows={4} />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthly} margin={{ left: -20, top: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fontSize: 12, fill: '#64748b' }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(value: number) => `${value / 1000}k`}
-                  />
-                  <Tooltip
-                    formatter={(value) => formatTHB(Number(value))}
-                    contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', fontSize: 13 }}
-                  />
-                  <Bar dataKey="total" fill="#10b981" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+        <div className="space-y-3">
+          <h2 className="text-sm font-medium text-ink">ลูกค้าที่ซื้อบ่อยที่สุด</h2>
+          {isLoading ? (
+            <TableSkeleton rows={3} />
+          ) : byFrequency.length === 0 ? (
+            <EmptyState icon={Wallet} title="ยังไม่มีใบแจ้งหนี้" />
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-line bg-white">
+              <ul className="divide-y divide-line">
+                {byFrequency.map((entry) => (
+                  <li key={entry.customerId} className="flex items-center justify-between gap-4 p-4">
+                    <div>
+                      <p className="text-sm font-medium text-ink">{entry.name}</p>
+                      <p className="text-xs text-ink-muted">{formatTHB(entry.total)}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-ink">{entry.documentCount} ฉบับ</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-sm font-medium text-ink">ลูกค้าที่มียอดสูงสุด</h2>
-        {isLoading ? (
-          <TableSkeleton rows={3} />
-        ) : topCustomers.length === 0 ? (
-          <EmptyState icon={Wallet} title="ยังไม่มียอดขายที่อนุมัติหรือชำระแล้ว" />
-        ) : (
-          <div className="overflow-hidden rounded-2xl border border-line bg-white">
-            <ul className="divide-y divide-line">
-              {topCustomers.map((entry) => (
-                <li key={entry.customerId} className="flex items-center justify-between gap-4 p-4">
-                  <div>
-                    <p className="text-sm font-medium text-ink">{entry.name}</p>
-                    <p className="text-xs text-ink-muted">{entry.documentCount} ฉบับ</p>
-                  </div>
-                  <p className="text-sm font-semibold text-ink">{formatTHB(entry.total)}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-ink">เอกสารล่าสุด</h2>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/documents">ดูทั้งหมด</Link>
-          </Button>
-        </div>
+        <h2 className="text-sm font-medium text-ink">ติดตามสถานะใบเสนอราคา</h2>
         {isLoading ? (
           <TableSkeleton rows={5} />
-        ) : recent.length === 0 ? (
-          <EmptyState icon={FilePlus2} title="ยังไม่มีเอกสาร" description="เริ่มสร้างเอกสารฉบับแรกของคุณได้เลย" />
+        ) : quotationTracking.length === 0 ? (
+          <EmptyState icon={FileClock} title="ยังไม่มีใบเสนอราคาในช่วงวันที่นี้" />
         ) : (
-          <DataTable columns={documentColumns} rows={recent} getRowKey={(row) => row.id} />
+          <DataTable columns={quotationColumns} rows={quotationTracking} getRowKey={(row) => row.document.id} />
         )}
       </div>
     </div>

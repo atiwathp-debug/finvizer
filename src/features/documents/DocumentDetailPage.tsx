@@ -24,7 +24,7 @@ import {
 import { listAuditLogsForEntity, logAuditEvent } from '@/lib/supabase/auditLog'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
-import { canApproveDocument, canEditDocument } from '@/lib/permissions/documentPermissions'
+import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from '@/lib/permissions/documentPermissions'
 import { toast } from '@/stores/toastStore'
 import { documentConversionMap, documentTypeLabels, revisionLabel, type DocumentRecord, type DocumentType } from '@/types/document'
 import type { DocumentTotalsResult } from '@/lib/calculations/documentTotals'
@@ -287,15 +287,15 @@ export function DocumentDetailPage() {
                 อนุมัติเอกสาร
               </Button>
             )}
+            {canMarkDocumentPaid(document.documentType, document.status, currentUserRole) && (
+              <Button variant="secondary" onClick={() => void handleMarkPaid()} isLoading={isActing}>
+                บันทึกว่าชำระแล้ว
+              </Button>
+            )}
             {document.status === 'APPROVED' && canApprove && (
-              <>
-                <Button variant="secondary" onClick={() => void handleMarkPaid()} isLoading={isActing}>
-                  บันทึกว่าชำระแล้ว
-                </Button>
-                <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={isActing}>
-                  ยกเลิกเอกสาร
-                </Button>
-              </>
+              <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={isActing}>
+                ยกเลิกเอกสาร
+              </Button>
             )}
             {document.status === 'APPROVED' && document.parentDocumentId === null && canEdit && (
               <Button variant="secondary" onClick={() => void handleCreateRevision()} isLoading={isActing}>

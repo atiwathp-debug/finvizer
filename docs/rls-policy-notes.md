@@ -374,6 +374,34 @@ must have its official number before it can be marked paid.
 a number to void), and a `PAID` document is treated as final; correcting
 one is a future-phase credit-note concern, not a status flip.
 
+**`mark_document_paid`, extended (production readiness,
+`20260713120000_paid_cascade.sql`)**: `create or replace function` against
+the same name/signature, so nothing else changed. Two additions:
+
+1. A `document_type` check — only `RECEIPT`/`RECEIPT_TAX_INVOICE` may be
+   marked paid directly (`"บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น"`
+   otherwise). `QUOTATION`, `INVOICE`, `TAX_INVOICE`, and
+   `CREDIT_NOTE`/`CREDIT_NOTE_TAX` never represent money actually
+   collected, so marking one paid directly would misrepresent the books.
+2. After flipping the target document, a recursive CTE walks the full
+   `source_document_id`-connected component in both directions (toward
+   ancestors — the document's own source, its source's source, ... — and
+   toward descendants — anything converted from any id already found),
+   then flips every other `APPROVED` document in that component whose
+   `document_type` is `INVOICE`/`TAX_INVOICE`/`RECEIPT`/
+   `RECEIPT_TAX_INVOICE` to `PAID` too, each logging its own
+   `MARK_DOCUMENT_PAID` audit row (`metadata.cascadedFrom` set to the
+   originally-paid document's number, so the two kinds of transition stay
+   distinguishable in the trail). `QUOTATION`/`RFQ` are excluded from the
+   cascade even though they're in the chain (they never carry money
+   owed), as are `CREDIT_NOTE`/`CREDIT_NOTE_TAX` (reductions, not sales);
+   `CANCELLED` documents are excluded by the `status = 'APPROVED'` filter
+   alone, so they stay terminal with no extra code.
+
+Mock Mode mirrors this exactly — `findConnectedDocuments()` in
+`src/lib/mock/mockDocuments.ts` is the in-memory equivalent of the
+recursive CTE above.
+
 ### `create_document_revision(p_document_id)` — Phase 4C
 
 Defined in `20260711120000_document_revisions.sql`. `security definer`,
@@ -610,3 +638,21 @@ reads the other's column.
     unlike `parent_document_id`, a direct client insert setting
     `source_document_id` is not blocked (see the note in the `documents`
     table section above for why that's an intentional, safe difference).
+14. Apply `20260713120000_paid_cascade.sql`. As **A** (owner), approve a
+    `QUOTATION`, convert it to an `INVOICE` and approve that, then convert
+    the `INVOICE` to both a `RECEIPT` and a `TAX_INVOICE` and approve both.
+    Confirm `select public.mark_document_paid('<invoice-id>')` raises
+    "บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น" (an `INVOICE` can never be
+    marked paid directly). Call
+    `select public.mark_document_paid('<receipt-id>')` instead — confirm
+    the `RECEIPT` becomes `PAID`, the `INVOICE` and the sibling
+    `TAX_INVOICE` both become `PAID` too (cascaded through
+    `source_document_id`), and the `QUOTATION` stays `APPROVED` (it never
+    carries money owed, so it's excluded from the cascade). Confirm two
+    new `audit_logs` rows exist for `MARK_DOCUMENT_PAID` — one for the
+    receipt, one for the invoice — and the invoice's row has
+    `metadata->>'cascadedFrom'` set to the receipt's document number.
+    Cancel a third document converted from the same invoice before paying
+    the receipt again on a fresh chain, and confirm the cancelled sibling
+    stays `CANCELLED` (not swept into `PAID`) while the rest of the chain
+    still cascades correctly.

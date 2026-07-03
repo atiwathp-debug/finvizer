@@ -351,6 +351,31 @@ server-side. Settings > Audit Log (Phase 1D) is unaffected — it still
 shows its own separate static Thai demo data, since only the document
 timeline was asked to read real entries this phase.
 
+### Production readiness: Paid-status cascade & document-type restriction
+
+| File | What it does |
+| --- | --- |
+| `20260713120000_paid_cascade.sql` | `create or replace function public.mark_document_paid(...)` (same function, same signature) — adds a `document_type` check (`RECEIPT`/`RECEIPT_TAX_INVOICE` only; everything else raises "บันทึกชำระเงินได้เฉพาะใบเสร็จรับเงินเท่านั้น"), and after flipping the target to `PAID`, walks the full `source_document_id` chain (both directions, via a recursive CTE) and also flips every other `APPROVED` `INVOICE`/`TAX_INVOICE`/`RECEIPT`/`RECEIPT_TAX_INVOICE` connected to it. |
+
+This is a schema-only change — the RPC's name/signature/return type are
+identical to the Phase 4B version, so `src/lib/supabase/documents.ts`'s
+`markDocumentPaid()` call site needed no changes. If your project already
+has the Phase 4B migration applied, apply just this one file (paste its
+contents into the SQL Editor, or `supabase db push` after adding it) — no
+need to redo any earlier migration.
+
+**Why the restriction and cascade**: only `RECEIPT`/`RECEIPT_TAX_INVOICE`
+represent money actually collected — a `QUOTATION`, unpaid `INVOICE`,
+`TAX_INVOICE`, or `CREDIT_NOTE`/`CREDIT_NOTE_TAX` being marked "paid"
+directly would misrepresent the books. Once a receipt is paid, every other
+document in the same sale (the `INVOICE` it was converted from, and any
+sibling `TAX_INVOICE`/`RECEIPT_TAX_INVOICE` off that same invoice) is the
+same underlying transaction, so it becomes `PAID` too — but a `QUOTATION`
+never carries money owed, and `CREDIT_NOTE`/`CANCELLED` documents are never
+touched, so both stay excluded from the cascade on purpose (see
+`docs/rls-policy-notes.md` for the full RPC breakdown). Mock Mode mirrors
+this exactly (`markMockDocumentPaid` in `src/lib/mock/mockDocuments.ts`).
+
 After applying, verify with:
 
 ```sql
