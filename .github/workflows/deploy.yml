@@ -1,9 +1,18 @@
 name: Deploy to GitHub Pages
 
-# Builds and deploys the Vite app to GitHub Pages on every push to main,
-# and on manual trigger. Requires Settings > Pages > Build and deployment
-# > Source = "GitHub Actions" in this repository (one-time setup, see
+# Builds and deploys the Vite app to GitHub Pages via a gh-pages branch on
+# every push to main, and on manual trigger. Requires Settings > Pages >
+# Build and deployment > Source = "Deploy from a branch", branch =
+# "gh-pages", folder = "/ (root)" in this repository (one-time setup, see
 # docs/supabase-setup.md / README "Deploying to GitHub Pages").
+#
+# Uses peaceiris/actions-gh-pages instead of the official
+# actions/configure-pages + upload-pages-artifact + deploy-pages pipeline,
+# which was intermittently failing with "Deployment failed, try again
+# later." at the deploy-pages step. This pushes the built dist/ folder
+# directly to the gh-pages branch instead, which GitHub Pages then serves
+# as a static branch source — a different, simpler deployment path that
+# doesn't depend on the Pages deployments API.
 #
 # VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are optional repository
 # secrets — if unset, the deployed build runs in Mock Mode (the app is
@@ -15,9 +24,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 # Only one deployment at a time; a new push cancels any in-progress run
 # rather than queuing behind it.
@@ -26,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,25 +49,17 @@ jobs:
 
       - run: npm run test
 
-      - name: Build (base path = /<repo-name>/, matching a GitHub Pages project site)
+      - name: Build (base path = /finvizer/, matching this GitHub Pages project site)
         env:
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_BASE_PATH: /finvizer/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
+      - name: Deploy dist/ to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          # GITHUB_TOKEN is an ephemeral token GitHub Actions injects
+          # automatically for every run — not a secret you need to create.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist

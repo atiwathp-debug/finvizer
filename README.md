@@ -102,18 +102,26 @@ docs/
 ### Automated (recommended)
 
 `.github/workflows/deploy.yml` builds and deploys on every push to `main`
-(lint + test + build, then publish `dist/`). One-time setup:
+(lint + test + build, then push `dist/` to the `gh-pages` branch via
+[`peaceiris/actions-gh-pages`](https://github.com/peaceiris/actions-gh-pages)).
+This repo uses the gh-pages-branch deployment path rather than the
+official `actions/deploy-pages` API-based pipeline, which was
+intermittently failing with "Deployment failed, try again later." — the
+branch-based approach doesn't depend on that API. One-time setup:
 
-1. Repo **Settings > Pages > Build and deployment > Source** = **GitHub
-   Actions**.
-2. Optional — to deploy with a real Supabase connection instead of Mock
-   Mode, add repo **Settings > Secrets and variables > Actions** secrets
-   named `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Leave them
-   unset to deploy in Mock Mode.
-3. Push to `main` (or run the workflow manually from the Actions tab).
+1. Push to `main` at least once so the workflow runs and creates the
+   `gh-pages` branch.
+2. Repo **Settings > Pages > Build and deployment > Source** = **"Deploy
+   from a branch"**, branch = **`gh-pages`**, folder = **`/ (root)`**.
+3. Optional — to deploy with a real Supabase connection instead of Mock
+   Mode, add repo **Settings > Secrets and variables > Actions > Secrets**
+   (not Variables — the workflow reads `secrets.*`) named
+   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Leave them unset to
+   deploy in Mock Mode.
 
-The workflow sets `VITE_BASE_PATH` to `/<repo-name>/` automatically, so it
-works regardless of what the repository is named.
+The workflow hardcodes `VITE_BASE_PATH` to `/finvizer/`, matching this
+repo's name — update it in `deploy.yml` if you ever rename the repo or
+fork it under a different name.
 
 ### Manual
 
