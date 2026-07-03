@@ -189,32 +189,34 @@ Every data-layer function branches on `isMockMode` (see
 `src/lib/supabase/client.ts`) and behaves identically either way — Mock
 Mode persists to `localStorage` instead of Postgres, including a real
 audit trail (`finvizer_mock_audit_logs`) that powers the same timeline UI.
-This repo has been built and verified almost entirely in Mock Mode; RLS
-policies and RPCs are believed correct by construction (each one has a
-documented manual-verification procedure in
-[docs/rls-policy-notes.md](docs/rls-policy-notes.md)) but have not yet
-been exercised against a live Supabase project — see that document and
-[docs/supabase-setup.md](docs/supabase-setup.md) before going to
-production.
+This repo was built primarily in Mock Mode, but has since been verified
+end-to-end against a live Supabase project: all 15 migrations applied,
+RLS/RPC behavior exercised directly (including a real second member with
+a restricted role to confirm role-gated RPCs and table policies both
+reject correctly), and the full document lifecycle (Draft → Approve →
+Revision → Conversion → PDF export) run against real data. See
+[docs/rls-policy-notes.md](docs/rls-policy-notes.md) and
+[docs/supabase-setup.md](docs/supabase-setup.md) for the underlying
+policy/RPC reference.
 
 ### Remaining MVP blockers
 
-- **RLS/RPC untested against a live Supabase project.** Every policy and
-  RPC has a manual verification procedure written out in
-  [docs/rls-policy-notes.md](docs/rls-policy-notes.md), but none has
-  actually been run — do this before onboarding real users.
-- **Edge Functions never deployed.** `delete-account` exists as source
-  only; run `supabase functions deploy delete-account` and test it for
-  real (see [docs/supabase-setup.md](docs/supabase-setup.md) §5).
 - **Settings > Audit Log still shows static demo data**, not the real
   persisted audit trail Phase 6A added — only the document detail page's
   timeline reads real entries so far.
-- **PDF export**: no company logo (not rendered even if uploaded), and no
-  pagination — a document with enough line items to overflow one A4 page
-  gets clipped rather than flowing to a second page.
+- **PDF export**: no company logo (logo upload itself isn't built yet —
+  the upload button is intentionally disabled with a "future phase"
+  notice, so there's nothing to render), and no pagination — a document
+  with enough line items to overflow one A4 page gets clipped rather than
+  flowing to a second page.
 - **Dashboard**: "recent documents" and "top customers" are fixed top-5,
   no date-range filter or pagination.
+- **Delete Account has only been verified with unauthorized requests**
+  (missing/invalid auth header, both correctly rejected) — a full
+  authenticated end-to-end run (real user, real cascade-delete of
+  company/members/invitations) has not been performed and needs explicit
+  sign-off before relying on it in production, since it's irreversible.
 - No automated CI test run has happened against a real Supabase project
   (the GitHub Actions workflow lints/tests/builds against Mock Mode
   logic only — real-mode code paths are typechecked but not
-  integration-tested).
+  integration-tested in CI).
