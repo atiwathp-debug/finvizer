@@ -11,6 +11,23 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undef
  */
 export const isMockMode = !supabaseUrl || !supabaseAnonKey
 
+// Safe boot-time diagnostic: logs which mode is active and, in real mode,
+// the configured project host — never the anon key itself. This is the
+// fastest way to tell "wrong/typo'd VITE_SUPABASE_URL baked into this
+// build" apart from "genuinely offline" or "Mock Mode", both of which can
+// otherwise look identical from the login screen's error message alone.
+if (typeof window !== 'undefined') {
+  if (isMockMode) {
+    console.info('[FinVizer] Mock Mode active — no VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY at build time.')
+  } else {
+    try {
+      console.info('[FinVizer] Supabase mode active — project host:', new URL(supabaseUrl as string).host)
+    } catch {
+      console.error('[FinVizer] VITE_SUPABASE_URL is set but is not a valid URL:', supabaseUrl)
+    }
+  }
+}
+
 export const supabase: SupabaseClient<Database> | null = isMockMode
   ? null
   : createClient<Database>(supabaseUrl as string, supabaseAnonKey as string, {
