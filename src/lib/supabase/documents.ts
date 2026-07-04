@@ -13,7 +13,7 @@ import {
   markMockDocumentPaid,
   saveMockDocumentDraft,
 } from '@/lib/mock/mockDocuments'
-import { calculateDocumentTotals } from '@/lib/calculations/documentTotals'
+import { calculateDocumentTotals, calculateInstallmentAmount } from '@/lib/calculations/documentTotals'
 import { logError } from '@/lib/utils/debugLog'
 import type { DocumentRow } from '@/types/database'
 import type { DocumentRecord, DocumentType, LineItem } from '@/types/document'
@@ -75,6 +75,7 @@ function mapDocumentRow(row: DocumentRow, items: LineItem[] = []): DocumentRecor
     parentDocumentId: row.parent_document_id,
     revisionNo: row.revision_no,
     sourceDocumentId: row.source_document_id,
+    installmentNumber: row.installment_number,
   }
 }
 
@@ -218,6 +219,7 @@ export async function saveDraftDocument(
       discount_total: totals.discountTotal,
       vat_amount: totals.vatAmount,
       grand_total: totals.grandTotal,
+      installment_number: input.installmentNumber ?? null,
     }
 
     let savedDocumentRow: DocumentRow
@@ -247,6 +249,12 @@ export async function saveDraftDocument(
         .delete()
         .eq('document_id', documentId)
       if (deleteItemsError) throw deleteItemsError
+
+      const { error: deleteInstallmentsError } = await client
+        .from('document_installments')
+        .delete()
+        .eq('document_id', documentId)
+      if (deleteInstallmentsError) throw deleteInstallmentsError
     }
 
     let items: LineItem[] = []
@@ -269,6 +277,22 @@ export async function saveDraftDocument(
         .select()
       if (itemsError) throw itemsError
       items = (insertedItems ?? []).map(mapDocumentItemRow)
+    }
+
+    if (input.installmentPlan === 'INSTALLMENT' && input.installments.length > 0) {
+      const { error: installmentsError } = await client.from('document_installments').insert(
+        input.installments.map((installment, index) => ({
+          document_id: savedDocumentRow.id,
+          installment_no: installment.installmentNo,
+          amount_type: installment.amountType,
+          amount_value: installment.amountValue,
+          computed_amount: calculateInstallmentAmount(installment.amountType, installment.amountValue, totals.grandTotal),
+          due_date: installment.dueDate || null,
+          note: installment.note || null,
+          sort_order: index,
+        })),
+      )
+      if (installmentsError) throw installmentsError
     }
 
     return mapDocumentRow(savedDocumentRow, items)

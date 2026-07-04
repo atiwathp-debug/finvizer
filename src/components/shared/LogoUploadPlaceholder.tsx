@@ -12,7 +12,7 @@ export function LogoUploadPlaceholder() {
           <Upload className="size-4" aria-hidden="true" />
           อัปโหลดโลโก้
         </Button>
-        <p className="mt-1 text-xs text-ink-muted">รองรับการอัปโหลดโลโก้ในเฟสถัดไป</p>
+        <p className="mt-1 text-xs text-ink-muted">อัปโหลดโลโก้ได้ภายหลังที่หน้าตั้งค่าบริษัท</p>
       </div>
     </div>
   )

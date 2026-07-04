@@ -1,5 +1,6 @@
 export type DiscountType = 'AMOUNT' | 'PERCENT'
 export type VatMode = 'NON_VAT' | 'VAT_EXCLUDED' | 'VAT_INCLUDED'
+export type InstallmentAmountType = 'PERCENT' | 'FIXED'
 
 /** Thailand's standard VAT rate. */
 export const VAT_RATE = 0.07
@@ -100,4 +101,34 @@ export function calculateDocumentTotals(input: DocumentTotalsInput): DocumentTot
     vatAmount: fromSatang(vatAmountSatang),
     grandTotal: fromSatang(grandTotalSatang),
   }
+}
+
+/** One installment row's baht amount — a percent of grandTotal, or a fixed baht value, satang-precise like calculateDiscountSatang. */
+export function calculateInstallmentAmount(
+  amountType: InstallmentAmountType,
+  amountValue: number,
+  grandTotal: number,
+): number {
+  if (amountType === 'PERCENT') {
+    return fromSatang(Math.round((toSatang(grandTotal) * amountValue) / 100))
+  }
+  return fromSatang(toSatang(amountValue))
+}
+
+export interface InstallmentSumCheck {
+  totalComputed: number
+  /** True if the installments' combined amount exceeds the document's grand total — a plan may legitimately total less (e.g. a deposit-only plan), but never more. */
+  exceedsGrandTotal: boolean
+}
+
+export function validateInstallmentSum(
+  installments: Array<{ amountType: InstallmentAmountType; amountValue: number }>,
+  grandTotal: number,
+): InstallmentSumCheck {
+  const totalComputed = installments.reduce(
+    (sum, installment) => sum + calculateInstallmentAmount(installment.amountType, installment.amountValue, grandTotal),
+    0,
+  )
+  // Small epsilon to absorb satang-rounding noise across multiple rows, not a business tolerance.
+  return { totalComputed, exceedsGrandTotal: totalComputed > grandTotal + 0.005 }
 }

@@ -141,6 +141,14 @@ export interface DocumentRecord {
    * neither, or either alone.
    */
   sourceDocumentId: string | null
+  /**
+   * Set only when this Draft was pre-filled from picking a specific
+   * installment during "แปลงเอกสาร" (production readiness pass 2,
+   * assisted single-step). Purely a display/pre-fill hint — never read by
+   * mark_document_paid() or create_document_conversion(). Null for every
+   * ordinary document.
+   */
+  installmentNumber: number | null
 }
 
 /** "R1"/"R2"/... for a revision's revisionNo, or null if not (yet) an approved revision. */

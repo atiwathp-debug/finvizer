@@ -43,6 +43,8 @@ export const auditActionLabels: Record<string, string> = {
   APPROVE_REVISION: 'อนุมัติ Revision',
   CONVERT_DOCUMENT: 'แปลงเอกสาร',
   EXPORT_DOCUMENT_PDF: 'ส่งออก PDF',
+  UPDATE_SIGNATURE_SLOTS: 'แก้ไขการตั้งค่าลายเซ็น',
+  DELETE_DOCUMENT_DRAFT: 'ลบเอกสารฉบับร่าง',
 }
 
 export function auditActionLabel(action: string): string {

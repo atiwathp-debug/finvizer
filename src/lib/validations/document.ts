@@ -34,6 +34,23 @@ export const lineItemSchema = lineItemBaseSchema.refine(
 )
 export type LineItemFormValues = z.infer<typeof lineItemBaseSchema>
 
+const installmentAmountTypeSchema = z.enum(['PERCENT', 'FIXED'], { message: 'กรุณาเลือกประเภทจำนวนเงิน' })
+
+// Structural validation only (percent range, positive installment number) —
+// the cross-field "sum of all rows must not exceed the document's grand
+// total" rule needs the live-calculated grandTotal, which a static Zod
+// schema doesn't have access to, so it's enforced procedurally in
+// DocumentForm.tsx's submit handler instead (see validateInstallmentSum in
+// src/lib/calculations/documentTotals.ts), not here.
+const installmentBaseSchema = z.object({
+  installmentNo: z.number().int().positive(),
+  amountType: installmentAmountTypeSchema,
+  amountValue: z.number({ message: 'กรุณากรอกจำนวนเงิน' }).min(0, 'จำนวนเงินต้องไม่ติดลบ'),
+  dueDate: z.string(),
+  note: z.string().max(500, 'หมายเหตุยาวเกินไป'),
+})
+export type InstallmentFormValues = z.infer<typeof installmentBaseSchema>
+
 const documentFormBaseSchema = z.object({
   documentType: z.enum(
     [
@@ -59,6 +76,22 @@ const documentFormBaseSchema = z.object({
   // progress; Phase 4B's Approve step is the natural place to require
   // at least one line item, not draft-saving.
   items: z.array(lineItemBaseSchema),
+  // Installment payment terms (production readiness pass 2) — FULL is the
+  // default and existing-document-shaped behavior; installments only
+  // persist when the plan is INSTALLMENT (see DocumentForm.tsx/
+  // saveDraftDocument). installmentNumber is set only when this Draft was
+  // pre-filled from picking a specific installment during conversion.
+  //
+  // Deliberately no .default(...) here (unlike a schema-level convenience
+  // default) — every DocumentFormValues literal in this codebase (DEFAULT_
+  // VALUES, toFormValues, tests) already supplies these fields explicitly,
+  // and adding .default() would make z.input's optionality diverge from
+  // DocumentFormValues (the output/z.infer type), breaking zodResolver's
+  // generic inference against `useForm<DocumentFormValues>` — the same
+  // zod4 + hookform-resolvers pain point documented above lineItemBaseSchema.
+  installmentPlan: z.enum(['FULL', 'INSTALLMENT']),
+  installments: z.array(installmentBaseSchema),
+  installmentNumber: z.number().nullable(),
 })
 
 export const documentFormSchema = documentFormBaseSchema.superRefine((values, ctx) => {
@@ -79,5 +112,24 @@ export const documentFormSchema = documentFormBaseSchema.superRefine((values, ct
       })
     }
   })
+
+  if (values.installmentPlan === 'INSTALLMENT') {
+    if (values.installments.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'กรุณาเพิ่มอย่างน้อย 1 งวดการชำระเงิน',
+        path: ['installments'],
+      })
+    }
+    values.installments.forEach((installment, index) => {
+      if (installment.amountType === 'PERCENT' && installment.amountValue > 100) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'เปอร์เซ็นต์ต้องไม่เกิน 100',
+          path: ['installments', index, 'amountValue'],
+        })
+      }
+    })
+  }
 })
 export type DocumentFormValues = z.infer<typeof documentFormBaseSchema>

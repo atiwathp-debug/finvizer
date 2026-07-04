@@ -117,6 +117,30 @@ export function updateMockCompany(companyId: string, input: MockCompanySettingsI
   return updated
 }
 
+/**
+ * Mock Mode has no Supabase Storage equivalent, so the logo is a data:
+ * URL persisted directly on the same logoUrl field a real upload would
+ * set to a public Storage URL — the UI-layer size/type checks are the
+ * only guard (see LogoUploadField.tsx), since localStorage's own quota
+ * (~5-10MB total) is the real backstop.
+ */
+export function updateMockCompanyLogo(companyId: string, dataUrl: string | null): Company {
+  const companies = readCompanies()
+  const index = companies.findIndex((c) => c.id === companyId)
+  if (index === -1) {
+    throw new Error('ไม่พบบริษัท')
+  }
+
+  const updated: Company = {
+    ...companies[index],
+    logoUrl: dataUrl,
+    updatedAt: new Date().toISOString(),
+  }
+  companies[index] = updated
+  writeCompanies(companies)
+  return updated
+}
+
 /** Used by lib/supabase/company.ts's updateCompanyTemplate — Phase 2A first-time and Settings > Templates changes alike. */
 export function updateMockCompanyTemplate(
   companyId: string,

@@ -3,6 +3,7 @@ import {
   createMockCompany,
   getMockCompanyForUser,
   updateMockCompany,
+  updateMockCompanyLogo,
   updateMockCompanyTemplate,
 } from '@/lib/mock/mockCompany'
 import { logError } from '@/lib/utils/debugLog'
@@ -139,6 +140,86 @@ export async function updateCompany(
     return mapCompanyRow(data)
   } catch (error) {
     logError('company.updateCompany', error, { companyId, input })
+    throw error
+  }
+}
+
+export const LOGO_MAX_BYTES_REAL = 2 * 1024 * 1024
+export const LOGO_MAX_BYTES_MOCK = 500 * 1024
+export const LOGO_ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']
+
+function logoFileExtension(file: File): string {
+  const fromName = file.name.split('.').pop()
+  if (fromName) return fromName.toLowerCase()
+  return file.type.split('/').pop() ?? 'png'
+}
+
+/**
+ * Uploads a company's logo to the public `company-logos` Storage bucket
+ * (20260718120000_company_logo_storage.sql) at `${companyId}/logo.<ext>`
+ * — a fixed, predictable path (not a random filename) so re-uploading
+ * always overwrites the previous logo instead of accumulating orphaned
+ * files, and so the RLS write policy can authorize purely from the path.
+ */
+export async function uploadCompanyLogo(companyId: string, file: File): Promise<string> {
+  if (!LOGO_ALLOWED_MIME_TYPES.includes(file.type)) {
+    throw new Error('รองรับเฉพาะไฟล์ PNG, JPG, SVG หรือ WEBP เท่านั้น')
+  }
+  if (file.size > LOGO_MAX_BYTES_REAL) {
+    throw new Error('ขนาดไฟล์ต้องไม่เกิน 2MB')
+  }
+  if (isMockMode) {
+    throw new Error('ฟังก์ชันนี้ใช้ได้เฉพาะเมื่อเชื่อมต่อ Supabase จริงเท่านั้น')
+  }
+
+  try {
+    const client = requireSupabase()
+    const path = `${companyId}/logo.${logoFileExtension(file)}`
+    const { error: uploadError } = await client.storage
+      .from('company-logos')
+      .upload(path, file, { upsert: true })
+    if (uploadError) throw uploadError
+
+    const { data } = client.storage.from('company-logos').getPublicUrl(path)
+    // Cache-bust the public URL so the newly uploaded file shows immediately
+    // instead of a stale CDN-cached copy at the same path.
+    const logoUrl = `${data.publicUrl}?v=${Date.now()}`
+
+    const { error: updateError } = await client
+      .from('companies')
+      .update({ logo_url: logoUrl })
+      .eq('id', companyId)
+    if (updateError) throw updateError
+
+    return logoUrl
+  } catch (error) {
+    logError('company.uploadCompanyLogo', error, { companyId })
+    throw error
+  }
+}
+
+/** Clears a company's logo — best-effort Storage cleanup, then always clears logo_url regardless of whether a file existed. */
+export async function removeCompanyLogo(companyId: string): Promise<Company> {
+  if (isMockMode) return updateMockCompanyLogo(companyId, null)
+
+  try {
+    const client = requireSupabase()
+    // Best-effort cleanup — the exact extension used at upload time isn't
+    // tracked separately, so try every extension logoFileExtension() could
+    // have produced; a missing-file error from any of these is harmless.
+    await client.storage
+      .from('company-logos')
+      .remove(['png', 'jpg', 'jpeg', 'svg', 'webp'].map((ext) => `${companyId}/logo.${ext}`))
+    const { data, error } = await client
+      .from('companies')
+      .update({ logo_url: null })
+      .eq('id', companyId)
+      .select()
+      .single()
+    if (error) throw error
+    return mapCompanyRow(data)
+  } catch (error) {
+    logError('company.removeCompanyLogo', error, { companyId })
     throw error
   }
 }

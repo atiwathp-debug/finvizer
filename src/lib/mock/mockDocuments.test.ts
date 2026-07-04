@@ -3,6 +3,7 @@ import { createMockCompany } from './mockCompany'
 import { saveMockNumberingSetting } from './mockNumbering'
 import { createMockCustomer } from './mockCustomers'
 import { listMockAuditLogsForEntity } from './mockAuditLogs'
+import { listMockDocumentInstallments } from './mockDocumentInstallments'
 import {
   approveMockDraftDocument,
   cancelMockDocument,
@@ -254,6 +255,7 @@ describe('approveMockDraftDocument', () => {
       parentDocumentId: null,
       revisionNo: null,
       sourceDocumentId: null,
+      installmentNumber: null,
     }
     localStorage.setItem(
       'finvizer_mock_documents',
@@ -334,6 +336,46 @@ describe('deleteMockDraftDocument', () => {
   it('throws for an unknown document id', () => {
     expect(() => deleteMockDraftDocument('missing-id')).toThrow('ไม่พบเอกสาร')
   })
+
+  it('also clears the Draft\'s own installment rows, leaving no orphans behind', () => {
+    const company = setupCompany()
+    const customer = createMockCustomer(company.id, 'user-1', {
+      customerCode: 'ORCHID',
+      name: 'บริษัท ออร์คิด เดโม จำกัด',
+      taxId: '',
+      branch: '',
+      address: '',
+      phone: '',
+      email: '',
+      contactName: '',
+      note: '',
+    })
+    const draft = saveMockDocumentDraft(
+      null,
+      company.id,
+      'user-1',
+      {
+        documentType: 'QUOTATION',
+        customerId: customer.id,
+        vatMode: 'VAT_EXCLUDED',
+        issueDate: '2026-07-01',
+        dueDate: '',
+        note: '',
+        documentDiscountType: 'AMOUNT',
+        documentDiscountValue: 0,
+        items: [],
+        installmentPlan: 'INSTALLMENT',
+        installments: [{ installmentNo: 1, amountType: 'PERCENT', amountValue: 100, dueDate: '', note: '' }],
+        installmentNumber: null,
+      },
+      customer,
+    )
+    expect(listMockDocumentInstallments(draft.id)).toHaveLength(1)
+
+    deleteMockDraftDocument(draft.id)
+
+    expect(listMockDocumentInstallments(draft.id)).toHaveLength(0)
+  })
 })
 
 describe('saveMockDocumentDraft', () => {
@@ -361,6 +403,9 @@ describe('saveMockDocumentDraft', () => {
     items: [
       { description: 'ค่าบริการที่ปรึกษา', quantity: 1, unit: 'งาน', unitPrice: 1000, discountType: 'AMOUNT', discountValue: 0 },
     ],
+    installmentPlan: 'FULL',
+    installments: [],
+    installmentNumber: null,
   }
 
   it('creates a new Draft with no official document number, computed totals, and items', () => {
@@ -471,6 +516,102 @@ describe('saveMockDocumentDraft', () => {
     expect(() =>
       saveMockDocumentDraft(draft.id, company.id, 'user-1', { ...formInput, customerId: customer.id }, customer),
     ).toThrow('แก้ไขได้เฉพาะเอกสารที่ยังเป็นฉบับร่างเท่านั้น')
+  })
+
+  it('persists no installment rows when the plan is FULL', () => {
+    const company = setupCompany()
+    const customer = createMockCustomer(company.id, 'user-1', customerInput)
+    const draft = saveMockDocumentDraft(null, company.id, 'user-1', { ...formInput, customerId: customer.id }, customer)
+
+    expect(draft.installmentNumber).toBeNull()
+    expect(listMockDocumentInstallments(draft.id)).toHaveLength(0)
+  })
+
+  it('persists installment rows with computed amounts when the plan is INSTALLMENT', () => {
+    const company = setupCompany()
+    const customer = createMockCustomer(company.id, 'user-1', customerInput)
+    const draft = saveMockDocumentDraft(
+      null,
+      company.id,
+      'user-1',
+      {
+        ...formInput,
+        customerId: customer.id,
+        installmentPlan: 'INSTALLMENT',
+        installments: [
+          { installmentNo: 1, amountType: 'PERCENT', amountValue: 50, dueDate: '2026-08-01', note: 'มัดจำ' },
+          { installmentNo: 2, amountType: 'PERCENT', amountValue: 50, dueDate: '2026-09-01', note: 'ส่วนที่เหลือ' },
+        ],
+      },
+      customer,
+    )
+
+    const installments = listMockDocumentInstallments(draft.id)
+    expect(installments).toHaveLength(2)
+    // grandTotal is 1070 (1000 + 7% VAT); 50% each = 535.
+    expect(installments[0].computedAmount).toBe(535)
+    expect(installments[1].computedAmount).toBe(535)
+    expect(installments[0].note).toBe('มัดจำ')
+  })
+
+  it('replaces installment rows on re-save instead of appending', () => {
+    const company = setupCompany()
+    const customer = createMockCustomer(company.id, 'user-1', customerInput)
+    const draft = saveMockDocumentDraft(
+      null,
+      company.id,
+      'user-1',
+      {
+        ...formInput,
+        customerId: customer.id,
+        installmentPlan: 'INSTALLMENT',
+        installments: [{ installmentNo: 1, amountType: 'PERCENT', amountValue: 100, dueDate: '', note: 'งวดเดียว' }],
+      },
+      customer,
+    )
+    expect(listMockDocumentInstallments(draft.id)).toHaveLength(1)
+
+    saveMockDocumentDraft(
+      draft.id,
+      company.id,
+      'user-1',
+      {
+        ...formInput,
+        customerId: customer.id,
+        installmentPlan: 'INSTALLMENT',
+        installments: [
+          { installmentNo: 1, amountType: 'PERCENT', amountValue: 40, dueDate: '', note: 'งวดแรก' },
+          { installmentNo: 2, amountType: 'PERCENT', amountValue: 60, dueDate: '', note: 'งวดสอง' },
+        ],
+      },
+      customer,
+    )
+
+    const installments = listMockDocumentInstallments(draft.id)
+    expect(installments).toHaveLength(2)
+    expect(installments.map((i) => i.note)).toEqual(['งวดแรก', 'งวดสอง'])
+  })
+
+  it('clears installment rows when switching back to FULL', () => {
+    const company = setupCompany()
+    const customer = createMockCustomer(company.id, 'user-1', customerInput)
+    const draft = saveMockDocumentDraft(
+      null,
+      company.id,
+      'user-1',
+      {
+        ...formInput,
+        customerId: customer.id,
+        installmentPlan: 'INSTALLMENT',
+        installments: [{ installmentNo: 1, amountType: 'PERCENT', amountValue: 100, dueDate: '', note: '' }],
+      },
+      customer,
+    )
+    expect(listMockDocumentInstallments(draft.id)).toHaveLength(1)
+
+    saveMockDocumentDraft(draft.id, company.id, 'user-1', { ...formInput, customerId: customer.id }, customer)
+
+    expect(listMockDocumentInstallments(draft.id)).toHaveLength(0)
   })
 })
 
@@ -724,6 +865,9 @@ describe('createMockDocumentRevision', () => {
         items: [
           { description: 'ค่าที่ปรึกษา', quantity: 2, unit: 'ครั้ง', unitPrice: 500, discountType: 'AMOUNT', discountValue: 0 },
         ],
+        installmentPlan: 'FULL',
+        installments: [],
+        installmentNumber: null,
       },
       customer,
     )
@@ -822,6 +966,9 @@ describe('approveMockDraftDocument — revision numbering', () => {
           documentDiscountType: 'AMOUNT',
           documentDiscountValue: 0,
           items: [],
+          installmentPlan: 'FULL',
+          installments: [],
+          installmentNumber: null,
         },
         customer,
       ),
@@ -916,6 +1063,9 @@ describe('createMockDocumentConversion', () => {
         items: [
           { description: 'ค่าที่ปรึกษา', quantity: 2, unit: 'ครั้ง', unitPrice: 500, discountType: 'AMOUNT', discountValue: 0 },
         ],
+        installmentPlan: 'FULL',
+        installments: [],
+        installmentNumber: null,
       },
       customer,
     )

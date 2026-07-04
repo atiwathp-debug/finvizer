@@ -1,27 +1,16 @@
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { THAI_FONT_FAMILY, registerPdfFonts } from '@/lib/pdf/fonts'
 import { sanitizeText } from '@/lib/pdf/sanitizeText'
 import { formatTHB, formatThaiDate } from '@/lib/utils/currency'
+import { getTemplatePalette } from '@/lib/templates/previewPalette'
 import { documentStatusLabels, documentTypeLabels, revisionLabel, type DocumentRecord } from '@/types/document'
 import type { Company } from '@/types/company'
 import type { Customer } from '@/types/customer'
 import type { DocumentTemplateEnum } from '@/types/database'
+import type { SignatureSlot } from '@/types/signature'
+import type { DocumentInstallment } from '@/types/documentInstallment'
 
 registerPdfFonts()
-
-/**
- * Colors mirror src/components/templates/DocumentTemplatePreview.tsx's two
- * on-screen mockups exactly, so the exported PDF reads as the same
- * template the user picked in Settings > Templates — Executive Classic
- * (dark slate header, minimal color) vs Modern Accent (indigo header,
- * emerald accents). react-pdf has no CSS gradient support, so Modern
- * Accent's header uses a solid indigo fill instead of the on-screen
- * gradient — same brand-forward feel, simpler to render reliably.
- */
-const palette = {
-  EXECUTIVE_CLASSIC: { header: '#0f172a', headerText: '#ffffff', accent: '#334155', totalBg: '#f1f5f9' },
-  MODERN_ACCENT: { header: '#4f46e5', headerText: '#ffffff', accent: '#059669', totalBg: '#ecfdf5' },
-} as const
 
 const styles = StyleSheet.create({
   page: {
@@ -40,6 +29,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 4,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  headerLogo: { width: 32, height: 32, objectFit: 'contain' },
   headerCompanyName: { fontSize: 13, fontWeight: 700 },
   headerLine: { fontSize: 8, marginTop: 2, opacity: 0.85 },
   headerDocType: { fontSize: 13, fontWeight: 700, textAlign: 'right' },
@@ -72,6 +63,12 @@ const styles = StyleSheet.create({
   colUnitPrice: { width: '19%', textAlign: 'right' },
   colAmount: { width: '19%', textAlign: 'right' },
   tableHeaderText: { fontSize: 8, fontWeight: 700, color: '#64748b' },
+  installmentSection: { marginTop: 16 },
+  installmentSectionLabel: { fontSize: 8, fontWeight: 700, color: '#475569', marginBottom: 4 },
+  colInstallmentNo: { width: '10%' },
+  colInstallmentNote: { width: '40%' },
+  colInstallmentDueDate: { width: '25%' },
+  colInstallmentAmount: { width: '25%', textAlign: 'right' },
   totalsSection: { marginTop: 14, alignItems: 'flex-end' },
   totalsRow: {
     flexDirection: 'row',
@@ -97,9 +94,11 @@ const styles = StyleSheet.create({
   signatureSection: {
     marginTop: 40,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
+    rowGap: 24,
   },
-  signatureBox: { width: '42%' },
+  signatureBox: { width: '30%', minWidth: 140 },
   signatureLine: {
     borderTopWidth: 1,
     borderTopColor: '#94a3b8',
@@ -115,28 +114,41 @@ interface DocumentPdfProps {
   customer: Customer | null
   document: DocumentRecord
   template: DocumentTemplateEnum
+  /** Company's configured signature slots, already fallback-wrapped by the caller (see generateDocumentPdf.tsx). */
+  signatureSlots: SignatureSlot[]
+  /** This document's installment payment plan, if any — renders an extra table when non-empty. */
+  installments: DocumentInstallment[]
 }
 
-export function DocumentPdf({ company, customer, document: doc, template }: DocumentPdfProps) {
-  const colors = palette[template] ?? palette.EXECUTIVE_CLASSIC
-  const isDraft = doc.status === 'DRAFT'
+export function DocumentPdf({ company, customer, document: doc, template, signatureSlots, installments }: DocumentPdfProps) {
+  const colors = getTemplatePalette(template)
   const revision = revisionLabel(doc.revisionNo)
 
   return (
     <Document title={`${documentTypeLabels[doc.documentType]}-${doc.documentNumber ?? 'DRAFT'}`}>
       <Page size="A4" style={styles.page}>
-        <View style={[styles.header, { backgroundColor: colors.header }]}>
-          <View>
-            <Text style={[styles.headerCompanyName, { color: colors.headerText }]}>
-              {sanitizeText(company.nameTh)}
-            </Text>
-            {company.address && (
-              <Text style={[styles.headerLine, { color: colors.headerText }]}>{sanitizeText(company.address)}</Text>
-            )}
-            <Text style={[styles.headerLine, { color: colors.headerText }]}>
-              เลขประจำตัวผู้เสียภาษี {sanitizeText(company.taxId)}
-              {company.phone ? ` · โทร ${sanitizeText(company.phone)}` : ''}
-            </Text>
+        <View
+          style={[
+            styles.header,
+            colors.headerBorderColor
+              ? { backgroundColor: colors.header, borderWidth: 1.5, borderColor: colors.headerBorderColor }
+              : { backgroundColor: colors.header },
+          ]}
+        >
+          <View style={styles.headerLeft}>
+            {company.logoUrl && <Image src={company.logoUrl} style={styles.headerLogo} />}
+            <View>
+              <Text style={[styles.headerCompanyName, { color: colors.headerText }]}>
+                {sanitizeText(company.nameTh)}
+              </Text>
+              {company.address && (
+                <Text style={[styles.headerLine, { color: colors.headerText }]}>{sanitizeText(company.address)}</Text>
+              )}
+              <Text style={[styles.headerLine, { color: colors.headerText }]}>
+                เลขประจำตัวผู้เสียภาษี {sanitizeText(company.taxId)}
+                {company.phone ? ` · โทร ${sanitizeText(company.phone)}` : ''}
+              </Text>
+            </View>
           </View>
           <View>
             <Text style={[styles.headerDocType, { color: colors.headerText }]}>
@@ -201,6 +213,32 @@ export function DocumentPdf({ company, customer, document: doc, template }: Docu
           )}
         </View>
 
+        {installments.length > 0 && (
+          <View style={styles.installmentSection}>
+            <Text style={styles.installmentSectionLabel}>เงื่อนไขการชำระเงิน (แบ่งชำระเป็นงวด)</Text>
+            <View style={[styles.tableHeaderRow, { borderBottomColor: colors.accent }]}>
+              <Text style={[styles.tableHeaderText, styles.colInstallmentNo]}>งวดที่</Text>
+              <Text style={[styles.tableHeaderText, styles.colInstallmentNote]}>รายละเอียด</Text>
+              <Text style={[styles.tableHeaderText, styles.colInstallmentDueDate]}>ครบกำหนด</Text>
+              <Text style={[styles.tableHeaderText, styles.colInstallmentAmount]}>จำนวนเงิน</Text>
+            </View>
+            {installments.map((installment) => (
+              <View key={installment.id} style={styles.tableRow}>
+                <Text style={[styles.colInstallmentNo, { fontSize: 8.5 }]}>{installment.installmentNo}</Text>
+                <Text style={[styles.colInstallmentNote, { fontSize: 8.5 }]}>
+                  {installment.note ? sanitizeText(installment.note) : '-'}
+                </Text>
+                <Text style={[styles.colInstallmentDueDate, { fontSize: 8.5 }]}>
+                  {installment.dueDate ? formatThaiDate(installment.dueDate) : '-'}
+                </Text>
+                <Text style={[styles.colInstallmentAmount, { fontSize: 8.5 }]}>
+                  {formatTHB(installment.computedAmount)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={styles.totalsSection}>
           <View style={styles.totalsRow}>
             <Text style={styles.totalsLabel}>รวมเป็นเงิน</Text>
@@ -220,9 +258,16 @@ export function DocumentPdf({ company, customer, document: doc, template }: Docu
               <Text style={styles.totalsValue}>{formatTHB(doc.vatAmount)}</Text>
             </View>
           )}
-          <View style={[styles.grandTotalRow, { backgroundColor: colors.totalBg }]}>
-            <Text style={[styles.grandTotalLabel, { color: colors.header }]}>ยอดรวมทั้งสิ้น</Text>
-            <Text style={[styles.grandTotalValue, { color: colors.header }]}>{formatTHB(doc.grandTotal)}</Text>
+          <View
+            style={[
+              styles.grandTotalRow,
+              colors.headerBorderColor
+                ? { backgroundColor: colors.totalBg, borderWidth: 1, borderColor: colors.headerBorderColor }
+                : { backgroundColor: colors.totalBg },
+            ]}
+          >
+            <Text style={[styles.grandTotalLabel, { color: colors.grandTotalTextColor }]}>ยอดรวมทั้งสิ้น</Text>
+            <Text style={[styles.grandTotalValue, { color: colors.grandTotalTextColor }]}>{formatTHB(doc.grandTotal)}</Text>
           </View>
         </View>
 
@@ -234,18 +279,14 @@ export function DocumentPdf({ company, customer, document: doc, template }: Docu
         )}
 
         <View style={styles.signatureSection}>
-          <View style={styles.signatureBox}>
-            <View style={styles.signatureLine}>
-              <Text style={styles.signatureLabel}>ผู้จัดทำเอกสาร</Text>
+          {signatureSlots.map((slot) => (
+            <View key={slot.id} style={styles.signatureBox}>
+              <View style={styles.signatureLine}>
+                <Text style={styles.signatureLabel}>{sanitizeText(slot.label)}</Text>
+              </View>
+              <Text style={styles.signatureDate}>วันที่ ____________</Text>
             </View>
-            <Text style={styles.signatureDate}>วันที่ ____________</Text>
-          </View>
-          <View style={styles.signatureBox}>
-            <View style={styles.signatureLine}>
-              <Text style={styles.signatureLabel}>{isDraft ? 'ผู้อนุมัติ (ยังไม่อนุมัติ)' : 'ผู้อนุมัติ'}</Text>
-            </View>
-            <Text style={styles.signatureDate}>วันที่ ____________</Text>
-          </View>
+          ))}
         </View>
       </Page>
     </Document>

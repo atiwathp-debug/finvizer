@@ -39,6 +39,7 @@ const document: DocumentRecord = {
   parentDocumentId: null,
   revisionNo: null,
   sourceDocumentId: null,
+  installmentNumber: null,
 }
 
 describe('documentPdfFileName', () => {

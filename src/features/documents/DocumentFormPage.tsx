@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { DocumentForm } from '@/features/documents/DocumentForm'
 import { listCustomers } from '@/lib/supabase/customers'
+import { listSignatureSlots } from '@/lib/supabase/signatureSlots'
+import { listDocumentInstallments } from '@/lib/supabase/documentInstallments'
 import { getDocumentById, saveDraftDocument } from '@/lib/supabase/documents'
 import { logAuditEvent } from '@/lib/supabase/auditLog'
 import { useAuthStore } from '@/stores/authStore'
@@ -14,8 +16,38 @@ import { toast } from '@/stores/toastStore'
 import { documentStatusLabels, type DocumentRecord } from '@/types/document'
 import type { DocumentFormValues } from '@/lib/validations/document'
 import type { Customer } from '@/types/customer'
+import type { SignatureSlot } from '@/types/signature'
+import type { ConversionInstallmentPick, DocumentInstallment } from '@/types/documentInstallment'
 
-function toFormValues(document: DocumentRecord): DocumentFormValues {
+/**
+ * Overrides a fresh conversion Draft's items/discount/installmentNumber to
+ * reflect just the picked installment's amount instead of the source
+ * document's full copied amount — a purely client-side, pre-save
+ * suggestion (production readiness pass 2, "assisted single-step"). The
+ * user reviews and can edit everything before saving; nothing here is
+ * auto-persisted, and it never touches createDocumentConversion itself.
+ */
+function applyInstallmentPick(values: DocumentFormValues, pick?: ConversionInstallmentPick): DocumentFormValues {
+  if (!pick) return values
+  return {
+    ...values,
+    documentDiscountType: 'AMOUNT',
+    documentDiscountValue: 0,
+    items: [
+      {
+        description: `งวดที่ ${pick.installmentNumber} ตามเอกสารต้นทาง${pick.note ? ` (${pick.note})` : ''}`,
+        quantity: 1,
+        unit: '',
+        unitPrice: pick.computedAmount,
+        discountType: 'AMOUNT',
+        discountValue: 0,
+      },
+    ],
+    installmentNumber: pick.installmentNumber,
+  }
+}
+
+function toFormValues(document: DocumentRecord, installments: DocumentInstallment[]): DocumentFormValues {
   return {
     documentType: document.documentType,
     customerId: document.customerId ?? '',
@@ -36,17 +68,38 @@ function toFormValues(document: DocumentRecord): DocumentFormValues {
         discountType: item.discountType,
         discountValue: item.discountValue,
       })),
+    installmentPlan: installments.length > 0 ? 'INSTALLMENT' : 'FULL',
+    installments: installments
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((installment) => ({
+        installmentNo: installment.installmentNo,
+        amountType: installment.amountType,
+        amountValue: installment.amountValue,
+        dueDate: installment.dueDate ?? '',
+        note: installment.note ?? '',
+      })),
+    installmentNumber: document.installmentNumber,
   }
 }
 
 export function DocumentFormPage() {
   const { id } = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Only present on the single client-side navigation right after
+  // "แปลงเอกสาร" hands off an installment pick — gone on any later reload
+  // or revisit of this same edit route, which is exactly the "first load
+  // only" behavior this needs (see DocumentDetailPage's handleCreateConversion).
+  const installmentPick = (location.state as { installmentPick?: ConversionInstallmentPick } | null)
+    ?.installmentPick
   const user = useAuthStore((state) => state.user)
   const company = useCompanyStore((state) => state.company)
   const canManage = useHasCompanyRole(['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR'])
 
   const [customers, setCustomers] = useState<Customer[] | null>(null)
+  const [signatureSlots, setSignatureSlots] = useState<SignatureSlot[]>([])
+  const [installments, setInstallments] = useState<DocumentInstallment[]>([])
   // undefined = not loaded yet, null = "no id" (create mode) or "not found" (edit mode, checked separately)
   const [existingDocument, setExistingDocument] = useState<DocumentRecord | null | undefined>(
     id ? undefined : null,
@@ -58,12 +111,15 @@ export function DocumentFormPage() {
     if (!company) return
     setLoadError(null)
     try {
-      const [customerList, document] = await Promise.all([
+      const [customerList, document, slots] = await Promise.all([
         listCustomers(company.id),
         id ? getDocumentById(id) : Promise.resolve(null),
+        listSignatureSlots(company.id),
       ])
       setCustomers(customerList)
       setExistingDocument(document)
+      setSignatureSlots(slots)
+      setInstallments(document ? await listDocumentInstallments(document.id) : [])
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง')
     }
@@ -148,7 +204,12 @@ export function DocumentFormPage() {
       <DocumentForm
         company={company}
         customers={customers}
-        initialValues={existingDocument ? toFormValues(existingDocument) : undefined}
+        signatureSlots={signatureSlots}
+        initialValues={
+          existingDocument
+            ? applyInstallmentPick(toFormValues(existingDocument, installments), installmentPick)
+            : undefined
+        }
         isSaving={isSaving}
         onSave={(values) => void handleSave(values)}
         onCancel={() => navigate('/documents')}

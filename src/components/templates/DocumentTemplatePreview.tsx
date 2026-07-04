@@ -17,12 +17,15 @@ const sampleLineItems = [
 
 /**
  * A generic, self-drawn invoice/quotation mockup — not a copy of any
- * reference design — styled two different ways so the two templates read
+ * reference design — styled three different ways so the templates read
  * as visually distinct at a glance: Executive Classic (dark, formal,
- * minimal color) vs Modern Accent (gradient header, brand-colored badges).
+ * minimal color), Modern Accent (gradient header, brand-colored badges),
+ * Minimal Print (white/black-line only, no fills — production readiness
+ * pass 2).
  */
 export function DocumentTemplatePreview({ variant, density = 'compact' }: DocumentTemplatePreviewProps) {
   const isModern = variant === 'MODERN_ACCENT'
+  const isMinimal = variant === 'MINIMAL_PRINT'
   const items = density === 'compact' ? sampleLineItems.slice(0, 2) : sampleLineItems
   const total = items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0)
 
@@ -30,7 +33,7 @@ export function DocumentTemplatePreview({ variant, density = 'compact' }: Docume
     <div
       className={cn(
         'overflow-hidden rounded-lg border text-[10px] leading-tight',
-        isModern ? 'border-indigo-100' : 'border-slate-200',
+        isModern ? 'border-indigo-100' : isMinimal ? 'border-black' : 'border-slate-200',
       )}
       aria-hidden="true"
     >
@@ -39,7 +42,9 @@ export function DocumentTemplatePreview({ variant, density = 'compact' }: Docume
           'flex items-start justify-between gap-2 px-3 py-2.5',
           isModern
             ? 'bg-gradient-to-r from-indigo-600 to-emerald-500 text-white'
-            : 'bg-slate-900 text-white',
+            : isMinimal
+              ? 'border-b-2 border-black bg-white text-ink'
+              : 'bg-slate-900 text-white',
         )}
       >
         <div>
@@ -67,7 +72,7 @@ export function DocumentTemplatePreview({ variant, density = 'compact' }: Docume
 
         <table className="w-full border-collapse">
           <thead>
-            <tr className={cn('text-left', isModern ? 'text-emerald-700' : 'text-slate-500')}>
+            <tr className={cn('text-left', isModern ? 'text-emerald-700' : isMinimal ? 'text-ink' : 'text-slate-500')}>
               <th className="border-b border-line pb-1 font-medium">รายการ</th>
               <th className="border-b border-line pb-1 text-right font-medium">จำนวน</th>
               <th className="border-b border-line pb-1 text-right font-medium">ราคา</th>
@@ -92,7 +97,11 @@ export function DocumentTemplatePreview({ variant, density = 'compact' }: Docume
           <div
             className={cn(
               'rounded px-2 py-1 text-[11px] font-semibold',
-              isModern ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-900',
+              isModern
+                ? 'bg-emerald-50 text-emerald-700'
+                : isMinimal
+                  ? 'border border-black bg-white text-ink'
+                  : 'bg-slate-100 text-slate-900',
             )}
           >
             รวมทั้งสิ้น {formatTHB(total)}

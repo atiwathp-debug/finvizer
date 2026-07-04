@@ -24,6 +24,13 @@ export const documentTemplateCatalog: DocumentTemplateMeta[] = [
     description: 'โทนสีสดใส แยกแบรนด์ชัดเจน เหมาะกับบริษัทบริการและธุรกิจสายเทคโนโลยีที่ต้องการความทันสมัย',
     swatch: ['#4f46e5', '#10b981', '#f8fafc'],
   },
+  {
+    id: 'MINIMAL_PRINT',
+    name: 'Minimal Print',
+    tagline: 'เรียบง่าย ประหยัดหมึกพิมพ์',
+    description: 'เส้นขอบสีดำล้วน ไม่มีพื้นหลังสี เหมาะกับการพิมพ์เอกสารขาวดำและงานที่เน้นความเรียบง่าย',
+    swatch: ['#000000', '#ffffff', '#000000'],
+  },
 ]
 
 export function getDocumentTemplateMeta(id: DocumentTemplateEnum): DocumentTemplateMeta {

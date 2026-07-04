@@ -6,6 +6,7 @@ const settingsNav = [
   { label: 'ข้อมูลบริษัท', to: '/settings/company' },
   { label: 'สมาชิก', to: '/settings/members' },
   { label: 'Template เอกสาร', to: '/settings/templates' },
+  { label: 'ลายเซ็นเอกสาร', to: '/settings/signatures' },
   { label: 'เลขที่เอกสาร', to: '/settings/numbering' },
   { label: 'ความเป็นส่วนตัว', to: '/settings/privacy' },
   { label: 'ประวัติการใช้งาน', to: '/settings/audit-logs' },

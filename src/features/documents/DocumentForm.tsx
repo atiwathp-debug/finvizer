@@ -1,8 +1,9 @@
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { documentFormSchema, type DocumentFormValues } from '@/lib/validations/document'
-import { calculateDocumentTotals } from '@/lib/calculations/documentTotals'
+import { calculateDocumentTotals, validateInstallmentSum } from '@/lib/calculations/documentTotals'
 import { LineItemEditor } from '@/features/documents/LineItemEditor'
+import { InstallmentEditor } from '@/features/documents/InstallmentEditor'
 import { FinancialSummary } from '@/features/documents/FinancialSummary'
 import { DocumentPreview } from '@/features/documents/DocumentPreview'
 import { FormField } from '@/components/shared/FormField'
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/Button'
 import { documentTypeLabels, vatModeLabels } from '@/types/document'
 import type { Company } from '@/types/company'
 import type { Customer } from '@/types/customer'
+import type { SignatureSlot } from '@/types/signature'
 
 const DEFAULT_VALUES: DocumentFormValues = {
   documentType: 'QUOTATION',
@@ -24,22 +26,35 @@ const DEFAULT_VALUES: DocumentFormValues = {
   documentDiscountType: 'AMOUNT',
   documentDiscountValue: 0,
   items: [],
+  installmentPlan: 'FULL',
+  installments: [],
+  installmentNumber: null,
 }
 
 interface DocumentFormProps {
   company: Company
   customers: Customer[]
+  signatureSlots?: SignatureSlot[]
   initialValues?: DocumentFormValues
   isSaving?: boolean
   onSave: (values: DocumentFormValues) => void
   onCancel: () => void
 }
 
-export function DocumentForm({ company, customers, initialValues, isSaving = false, onSave, onCancel }: DocumentFormProps) {
+export function DocumentForm({
+  company,
+  customers,
+  signatureSlots,
+  initialValues,
+  isSaving = false,
+  onSave,
+  onCancel,
+}: DocumentFormProps) {
   const {
     register,
     control,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm<DocumentFormValues>({
     resolver: zodResolver(documentFormSchema),
@@ -65,8 +80,22 @@ export function DocumentForm({ company, customers, initialValues, isSaving = fal
 
   const selectedCustomer = customers.find((c) => c.id === watched.customerId)
 
+  const handleValidatedSave = handleSubmit((values) => {
+    if (values.installmentPlan === 'INSTALLMENT') {
+      const sumCheck = validateInstallmentSum(values.installments, totals.grandTotal)
+      if (sumCheck.exceedsGrandTotal) {
+        setError('installments', {
+          type: 'manual',
+          message: 'ยอดรวมตามงวดต้องไม่เกินยอดรวมทั้งสิ้นของเอกสาร',
+        })
+        return
+      }
+    }
+    onSave(values)
+  })
+
   return (
-    <form onSubmit={handleSubmit(onSave)} noValidate className="space-y-6">
+    <form onSubmit={handleValidatedSave} noValidate className="space-y-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">
           {customers.length === 0 && (
@@ -126,6 +155,10 @@ export function DocumentForm({ company, customers, initialValues, isSaving = fal
             <LineItemEditor control={control} register={register} errors={errors} />
           </div>
 
+          <div className="rounded-2xl border border-line bg-white p-4 sm:p-5">
+            <InstallmentEditor control={control} register={register} errors={errors} grandTotal={totals.grandTotal} />
+          </div>
+
           <FinancialSummary register={register} errors={errors} totals={totals} vatMode={vatMode} />
 
           <div className="flex justify-end gap-2">
@@ -143,6 +176,8 @@ export function DocumentForm({ company, customers, initialValues, isSaving = fal
             <DocumentPreview
               companyName={company.nameTh}
               companyAddress={company.address}
+              logoUrl={company.logoUrl}
+              template={company.documentTemplate}
               documentTypeLabel={documentTypeLabels[documentType]}
               customerName={selectedCustomer?.name}
               customerAddress={selectedCustomer?.address}
@@ -158,6 +193,9 @@ export function DocumentForm({ company, customers, initialValues, isSaving = fal
               totals={totals}
               vatMode={vatMode}
               note={watched.note}
+              signatureSlots={signatureSlots}
+              installmentPlan={watched.installmentPlan}
+              installments={watched.installments}
             />
           </div>
         </div>

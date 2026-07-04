@@ -1,13 +1,20 @@
 import { pdf } from '@react-pdf/renderer'
 import { DocumentPdf } from '@/lib/pdf/DocumentPdf'
+import { withSignatureFallback } from '@/lib/signatures/defaultSignatureSlots'
 import type { DocumentRecord } from '@/types/document'
 import type { Company } from '@/types/company'
 import type { Customer } from '@/types/customer'
+import type { SignatureSlot } from '@/types/signature'
+import type { DocumentInstallment } from '@/types/documentInstallment'
 
 interface GenerateDocumentPdfInput {
   company: Company
   customer: Customer | null
   document: DocumentRecord
+  /** Company's configured signature slots — falls back to ผู้ซื้อ/ผู้ขาย when omitted or empty. */
+  signatureSlots?: SignatureSlot[]
+  /** This document's installment payment plan, if any — renders an extra table when non-empty. */
+  installments?: DocumentInstallment[]
 }
 
 /**
@@ -17,9 +24,24 @@ interface GenerateDocumentPdfInput {
  * DocumentDetailPage's handleExportPdf); this function never persists or
  * transmits the result.
  */
-export async function generateDocumentPdf({ company, customer, document }: GenerateDocumentPdfInput): Promise<Blob> {
+export async function generateDocumentPdf({
+  company,
+  customer,
+  document,
+  signatureSlots,
+  installments,
+}: GenerateDocumentPdfInput): Promise<Blob> {
   const template = company.documentTemplate ?? 'EXECUTIVE_CLASSIC'
-  const instance = pdf(<DocumentPdf company={company} customer={customer} document={document} template={template} />)
+  const instance = pdf(
+    <DocumentPdf
+      company={company}
+      customer={customer}
+      document={document}
+      template={template}
+      signatureSlots={withSignatureFallback(signatureSlots ?? [])}
+      installments={installments ?? []}
+    />,
+  )
   return instance.toBlob()
 }
 

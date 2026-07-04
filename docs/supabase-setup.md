@@ -407,6 +407,29 @@ See [docs/rls-policy-notes.md](rls-policy-notes.md) for what each policy
 allows/blocks and how to test it manually (this can't be covered by
 `npm run test` — it needs a real Postgres connection).
 
+### Production readiness pass 2 migrations (logo, templates, signatures, installments)
+
+Apply these 4 files in order, after everything above. None of them modify
+`mark_document_paid`, `create_document_conversion`, or any other existing
+function/policy — every one is purely additive (new table, new enum
+value, or a new nullable column), so there is nothing to re-verify beyond
+the RLS zero-rows check above.
+
+| File | What it does |
+| --- | --- |
+| `20260715120000_signature_slots.sql` | Creates `signature_slots` (one company-wide ordered list of signature-box labels — ผู้ซื้อ/ผู้ขาย by default, extra slots like ผู้จัดทำ/ผู้ตรวจสอบ/ผู้อนุมัติ optional). RLS: any active company member can `select`; only the company Owner can `insert`/`update`/`delete` — same shape as `numbering_settings`. |
+| `20260716120000_document_template_minimal_print.sql` | `alter type public.document_template add value if not exists 'MINIMAL_PRINT';` — adds the 3rd built-in template (a plain black-line/minimal printable form style) to the existing 2-value enum. Deliberately the only statement in this file — some Postgres versions reject using a freshly-added enum value in the same transaction it was added in. |
+| `20260717120000_document_installments.sql` | Adds `documents.installment_number` (nullable, purely a display/pre-fill hint for the "assisted single-step" installment-aware conversion flow — never read by `mark_document_paid()` or `create_document_conversion()`). Creates `document_installments` (percent-or-fixed payment-plan rows per document). RLS mirrors `document_items`: any company member can `select`; `insert`/`update`/`delete` only while the parent document is still `DRAFT` and the caller has an editing role (`OWNER`/`ADMIN`/`ACCOUNTANT`/`EDITOR`). |
+| `20260718120000_company_logo_storage.sql` | Creates a public `company-logos` Storage bucket (2MB limit, `image/png`/`image/jpeg`/`image/svg+xml`/`image/webp` only) and 4 `storage.objects` RLS policies: public read (a logo isn't sensitive data), owner-only insert/update/delete, scoped by the `${company_id}/...` path segment via `(storage.foldername(name))[1]::uuid`. `companies.logo_url` itself already existed from Phase 1B — this migration only adds somewhere to actually store the file. |
+
+**Manual verification step (Storage bucket, dashboard-only — not covered
+by SQL)**: after applying `20260718120000_company_logo_storage.sql`, open
+the Supabase Dashboard → Storage and confirm a bucket named
+`company-logos` now exists and is marked **Public**. The migration's
+`insert into storage.buckets (...)` creates it automatically — this step
+is just a visual confirmation, no action needed unless it's missing (in
+which case re-run the migration file).
+
 Once migrations are applied, regenerate accurate TypeScript types (this repo
 currently ships a hand-written equivalent at `src/types/database.ts` that
 matches the migrations exactly):

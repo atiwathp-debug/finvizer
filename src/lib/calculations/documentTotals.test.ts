@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   calculateDocumentTotals,
+  calculateInstallmentAmount,
   calculateLineItemAmount,
+  validateInstallmentSum,
   type LineItemMoneyInput,
 } from './documentTotals'
 
@@ -149,5 +151,65 @@ describe('calculateDocumentTotals — multiple items', () => {
     expect(result.subtotal).toBe(0)
     expect(result.vatAmount).toBe(0)
     expect(result.grandTotal).toBe(0)
+  })
+})
+
+describe('calculateInstallmentAmount', () => {
+  it('computes a PERCENT amount as a share of grandTotal', () => {
+    expect(calculateInstallmentAmount('PERCENT', 50, 1000)).toBe(500)
+    expect(calculateInstallmentAmount('PERCENT', 30, 1000)).toBe(300)
+  })
+
+  it('rounds a PERCENT amount to the nearest satang', () => {
+    expect(calculateInstallmentAmount('PERCENT', 33.33, 1000)).toBe(333.3)
+  })
+
+  it('uses a FIXED amount as-is, independent of grandTotal', () => {
+    expect(calculateInstallmentAmount('FIXED', 5000, 1000)).toBe(5000)
+    expect(calculateInstallmentAmount('FIXED', 0, 1000)).toBe(0)
+  })
+})
+
+describe('validateInstallmentSum', () => {
+  it('flags no violation when installments sum to exactly the grand total', () => {
+    const result = validateInstallmentSum(
+      [
+        { amountType: 'PERCENT', amountValue: 50 },
+        { amountType: 'PERCENT', amountValue: 50 },
+      ],
+      1000,
+    )
+    expect(result.totalComputed).toBe(1000)
+    expect(result.exceedsGrandTotal).toBe(false)
+  })
+
+  it('allows a deposit-only plan that sums to less than the grand total', () => {
+    const result = validateInstallmentSum([{ amountType: 'PERCENT', amountValue: 30 }], 1000)
+    expect(result.totalComputed).toBe(300)
+    expect(result.exceedsGrandTotal).toBe(false)
+  })
+
+  it('flags a violation when installments sum to more than the grand total', () => {
+    const result = validateInstallmentSum(
+      [
+        { amountType: 'FIXED', amountValue: 700 },
+        { amountType: 'FIXED', amountValue: 500 },
+      ],
+      1000,
+    )
+    expect(result.totalComputed).toBe(1200)
+    expect(result.exceedsGrandTotal).toBe(true)
+  })
+
+  it('does not flag a violation from satang-rounding noise across multiple rows', () => {
+    const result = validateInstallmentSum(
+      [
+        { amountType: 'PERCENT', amountValue: 33.33 },
+        { amountType: 'PERCENT', amountValue: 33.33 },
+        { amountType: 'PERCENT', amountValue: 33.34 },
+      ],
+      1000,
+    )
+    expect(result.exceedsGrandTotal).toBe(false)
   })
 })

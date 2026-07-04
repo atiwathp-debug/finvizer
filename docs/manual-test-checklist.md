@@ -778,6 +778,125 @@ policy-by-policy breakdown and a manual SQL verification recipe.
       any of the deleted user's earlier audit_logs rows still exist with
       `actor_id` anonymized to `null`
 
+## Production readiness pass 2: logo, templates, signatures, installments, safe deletion — testable now
+
+> None of this pass touches the paid-status cascade, conversion-after-PAID
+> logic, dashboard accounting, or quotation tracking from the sections
+> above — re-run the relevant checks above once at the end of this pass to
+> positively confirm zero regression, not just "we didn't touch the file."
+
+### Company logo
+
+- [ ] Settings > ข้อมูลบริษัท shows a dashed upload placeholder when no logo
+      is set yet
+- [ ] Uploading a PNG/JPEG/SVG/WEBP under the size limit (2MB real mode /
+      500KB Mock Mode) shows the new logo immediately in Settings, in the
+      document preview (next to the company name), and in an exported PDF
+- [ ] Uploading a file over the size limit or an unsupported type is
+      rejected client-side with a Thai error message — nothing is
+      uploaded/saved
+- [ ] Removing the logo clears it from Settings, the document preview, and
+      newly-exported PDFs — the layout stays clean (no broken image, no
+      leftover gap)
+- [ ] `[ ]` (real Supabase only) The uploaded file appears under the
+      public `company-logos` Storage bucket at `${company_id}/logo.<ext>`;
+      a second company cannot overwrite the first company's logo (owner-
+      scoped `storage.objects` RLS policies)
+
+### Document templates (3rd template: Minimal Print)
+
+- [ ] Settings > Template เอกสาร now lists 3 templates: Executive Classic,
+      Modern Accent, and Minimal Print
+- [ ] Selecting Minimal Print re-renders the on-screen document preview
+      with a plain white header/black text/black border style (no color
+      fill) — distinct from the other two
+- [ ] An exported PDF under Minimal Print matches the on-screen preview's
+      look; the grand-total box text is clearly legible (not white-on-
+      white)
+- [ ] Switching back to Executive Classic or Modern Accent renders
+      pixel-equivalent to before this pass (regression check — these two
+      templates' colors were not changed, only extracted into a shared
+      file)
+
+### Signature configuration
+
+- [ ] A company that has never visited Settings > ลายเซ็นเอกสาร still shows
+      ผู้ซื้อ/ผู้ขาย signature boxes on every document preview and PDF
+      export, with zero setup required
+- [ ] Settings > ลายเซ็นเอกสาร (Owner only) pre-populates ผู้ซื้อ/ผู้ขาย as
+      editable rows when the company has no saved configuration yet
+- [ ] Adding extra slots (e.g. ผู้จัดทำ, ผู้ตรวจสอบ, ผู้อนุมัติ, ผู้จัดการฝ่ายขาย),
+      reordering, relabeling, and removing down to a minimum of 1 slot all
+      work and persist after Save
+- [ ] After saving a custom configuration, every document's preview and
+      PDF export reflects the exact same slots/order/labels — no more
+      hardcoded ผู้จัดทำเอกสาร/ผู้อนุมัติ boxes
+- [ ] A non-owner member sees the page read-only (cannot edit/save)
+- [ ] Saving logs an `UPDATE_SIGNATURE_SLOTS` audit event
+
+### Installment payment terms
+
+- [ ] Creating/editing a Draft shows "เงื่อนไขการชำระเงิน" defaulting to
+      "ชำระเต็มจำนวน" — switching to "แบ่งชำระเป็นงวด" reveals the installment
+      row editor
+- [ ] Adding installment rows (percent or fixed amount, due date, note)
+      shows each row's computed baht amount live, and the document preview
+      renders an installment table between line items and totals
+- [ ] Installment rows summing to less than 100% (a deposit-only plan) are
+      allowed; rows summing to over 100% show a warning and block saving
+- [ ] Saved installment rows survive a page reload — re-opening the Draft
+      for editing shows the exact same rows
+- [ ] Both the on-screen detail page and the exported PDF show the
+      installment table when installments exist, and show nothing extra
+      when they don't (Full-payment documents look exactly as before this
+      pass)
+- [ ] Switching a Draft with installment rows back to "ชำระเต็มจำนวน" and
+      saving clears all of its installment rows
+
+### Installment-aware conversion (assisted single-step)
+
+> Requires an Approved/Paid source document (e.g. a QUOTATION) that has
+> installment rows.
+
+- [ ] The "แปลงเอกสาร" dialog on a source document with installment rows
+      shows an extra "สำหรับงวดที่..." picker, defaulting to "ไม่ระบุ
+      (คัดลอกยอดเต็มจำนวนตามปกติ)"
+- [ ] Leaving the picker on the default and confirming behaves exactly as
+      before this pass — the new Draft copies the source's full amount
+      unchanged
+- [ ] Picking a specific installment and confirming opens the new Draft's
+      edit form pre-filled with a single line item ("งวดที่ {n} ตามเอกสาร
+      ต้นทาง") at that installment's computed amount, with the document-
+      level discount reset to zero — fully editable before saving
+- [ ] `[ ]` Confirm via the mock/real conversion call that no installment
+      info was ever passed into it — `create_document_conversion`/
+      `createDocumentConversion` always receives exactly the same 3
+      arguments as before this pass, and the created Draft's initial
+      `grand_total` always equals the source's full amount (the picked-
+      installment pre-fill happens only afterward, client-side, on the
+      edit form)
+
+### Safe document deletion
+
+- [ ] A `DRAFT` document's detail page shows both "แก้ไข" and a "ลบฉบับร่าง"
+      button (danger-styled) next to it
+- [ ] Clicking "ลบฉบับร่าง" opens a confirmation dialog explaining the
+      deletion is permanent and irreversible; confirming deletes the Draft
+      and navigates back to `/documents`
+- [ ] The delete logs a `DELETE_DOCUMENT_DRAFT` audit event before the
+      document (and its audit trail) is gone
+- [ ] `APPROVED`/`PAID`/`CANCELLED` documents show no delete button at
+      all — only "ยกเลิกเอกสาร" (cancel/void) where applicable, which now
+      has a tooltip clarifying that a numbered document can only be
+      cancelled, not deleted
+- [ ] Deleting a Draft that has installment rows also removes those rows
+      (no orphaned data) — confirmed via the Draft's own `document_id`
+      scoping, never affecting another document's rows
+- [ ] Deleting a Draft does not affect any other document's number,
+      conversion chain, or the Dashboard's totals — re-check the Dashboard
+      after deleting a Draft that was never approved (it should show no
+      change, since a Draft was never counted anywhere)
+
 ## Responsive / Mobile (ongoing)
 
 - [ ] `[ ]` All primary flows (login, dashboard, document list, document

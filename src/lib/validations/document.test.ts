@@ -20,6 +20,9 @@ const validDocument = {
   documentDiscountType: 'AMOUNT' as const,
   documentDiscountValue: 0,
   items: [validItem],
+  installmentPlan: 'FULL' as const,
+  installments: [],
+  installmentNumber: null,
 }
 
 describe('lineItemSchema', () => {
@@ -95,6 +98,36 @@ describe('documentFormSchema', () => {
     const result = documentFormSchema.safeParse({
       ...validDocument,
       items: [{ ...validItem, quantity: -5 }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('requires at least one installment row when the plan is INSTALLMENT', () => {
+    const result = documentFormSchema.safeParse({
+      ...validDocument,
+      installmentPlan: 'INSTALLMENT',
+      installments: [],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts an INSTALLMENT plan with valid rows', () => {
+    const result = documentFormSchema.safeParse({
+      ...validDocument,
+      installmentPlan: 'INSTALLMENT',
+      installments: [
+        { installmentNo: 1, amountType: 'PERCENT', amountValue: 50, dueDate: '2026-08-01', note: 'มัดจำ' },
+        { installmentNo: 2, amountType: 'PERCENT', amountValue: 50, dueDate: '2026-09-01', note: 'ส่วนที่เหลือ' },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an installment PERCENT amount over 100', () => {
+    const result = documentFormSchema.safeParse({
+      ...validDocument,
+      installmentPlan: 'INSTALLMENT',
+      installments: [{ installmentNo: 1, amountType: 'PERCENT', amountValue: 150, dueDate: '', note: '' }],
     })
     expect(result.success).toBe(false)
   })

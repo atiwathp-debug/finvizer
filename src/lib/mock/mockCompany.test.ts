@@ -3,6 +3,7 @@ import {
   createMockCompany,
   getMockCompanyForUser,
   updateMockCompany,
+  updateMockCompanyLogo,
   updateMockCompanyTemplate,
   type MockCompanyOnboardingInput,
 } from './mockCompany'
@@ -117,5 +118,39 @@ describe('updateMockCompanyTemplate', () => {
 
   it('throws for an unknown company id', () => {
     expect(() => updateMockCompanyTemplate('missing-id', 'MODERN_ACCENT')).toThrow('ไม่พบบริษัท')
+  })
+})
+
+describe('updateMockCompanyLogo', () => {
+  it('starts with no logo set', () => {
+    const company = createMockCompany('user-1', input)
+    expect(company.logoUrl).toBeNull()
+  })
+
+  it('sets the logo as a data URL and bumps updatedAt', async () => {
+    const company = createMockCompany('user-1', input)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgo='
+
+    const updated = updateMockCompanyLogo(company.id, dataUrl)
+
+    expect(updated.logoUrl).toBe(dataUrl)
+    expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(
+      new Date(company.updatedAt).getTime(),
+    )
+    expect(getMockCompanyForUser('user-1')?.company.logoUrl).toBe(dataUrl)
+  })
+
+  it('clears the logo back to null on remove', () => {
+    const company = createMockCompany('user-1', input)
+    updateMockCompanyLogo(company.id, 'data:image/png;base64,iVBORw0KGgo=')
+
+    const cleared = updateMockCompanyLogo(company.id, null)
+
+    expect(cleared.logoUrl).toBeNull()
+  })
+
+  it('throws for an unknown company id', () => {
+    expect(() => updateMockCompanyLogo('missing-id', 'data:image/png;base64,x')).toThrow('ไม่พบบริษัท')
   })
 })

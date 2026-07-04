@@ -1,25 +1,43 @@
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { companySettingsSchema, type CompanySettingsFormValues } from '@/lib/validations/company'
-import { updateCompany } from '@/lib/supabase/company'
+import {
+  LOGO_MAX_BYTES_MOCK,
+  removeCompanyLogo,
+  updateCompany,
+  uploadCompanyLogo,
+} from '@/lib/supabase/company'
+import { updateMockCompanyLogo } from '@/lib/mock/mockCompany'
 import { logAuditEvent } from '@/lib/supabase/auditLog'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { useHasCompanyRole } from '@/lib/permissions/useHasCompanyRole'
 import { isMockMode } from '@/lib/mock'
 import { FormField } from '@/components/shared/FormField'
-import { LogoUploadPlaceholder } from '@/components/shared/LogoUploadPlaceholder'
+import { LogoUploadField } from '@/components/shared/LogoUploadField'
 import { PhaseNotice } from '@/components/shared/PhaseNotice'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/stores/toastStore'
 
+/** Reads a File as a data: URL — used only for Mock Mode's logo storage (no Supabase Storage equivalent there). */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error ?? new Error('อ่านไฟล์ไม่สำเร็จ'))
+    reader.readAsDataURL(file)
+  })
+}
+
 export function CompanySettingsPage() {
   const company = useCompanyStore((state) => state.company)
   const setCompany = useCompanyStore((state) => state.setCompany)
   const user = useAuthStore((state) => state.user)
   const isOwner = useHasCompanyRole(['OWNER'])
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false)
 
   const {
     register,
@@ -42,6 +60,64 @@ export function CompanySettingsPage() {
 
   if (!company) {
     return <ErrorState title="ไม่พบข้อมูลบริษัท" onRetry={() => window.location.reload()} />
+  }
+
+  const handleLogoUpload = async (file: File) => {
+    if (isMockMode && file.size > LOGO_MAX_BYTES_MOCK) {
+      toast({ title: 'ไฟล์มีขนาดใหญ่เกินไป', description: 'ขนาดไม่เกิน 500KB ในโหมด Mock', tone: 'error' })
+      return
+    }
+    setIsUploadingLogo(true)
+    try {
+      const updated = isMockMode
+        ? updateMockCompanyLogo(company.id, await readFileAsDataUrl(file))
+        : { ...company, logoUrl: await uploadCompanyLogo(company.id, file) }
+      setCompany(updated)
+      if (user) {
+        void logAuditEvent({
+          companyId: updated.id,
+          actorId: user.id,
+          action: 'UPDATE_COMPANY',
+          entityType: 'company',
+          entityId: updated.id,
+        })
+      }
+      toast({ title: 'อัปโหลดโลโก้สำเร็จ', tone: 'success' })
+    } catch (error) {
+      toast({
+        title: 'อัปโหลดโลโก้ไม่สำเร็จ',
+        description: error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
+        tone: 'error',
+      })
+    } finally {
+      setIsUploadingLogo(false)
+    }
+  }
+
+  const handleLogoRemove = async () => {
+    setIsUploadingLogo(true)
+    try {
+      const updated = isMockMode ? updateMockCompanyLogo(company.id, null) : await removeCompanyLogo(company.id)
+      setCompany(updated)
+      if (user) {
+        void logAuditEvent({
+          companyId: updated.id,
+          actorId: user.id,
+          action: 'UPDATE_COMPANY',
+          entityType: 'company',
+          entityId: updated.id,
+        })
+      }
+      toast({ title: 'ลบโลโก้สำเร็จ', tone: 'success' })
+    } catch (error) {
+      toast({
+        title: 'ลบโลโก้ไม่สำเร็จ',
+        description: error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
+        tone: 'error',
+      })
+    } finally {
+      setIsUploadingLogo(false)
+    }
   }
 
   const onSubmit = async (values: CompanySettingsFormValues) => {
@@ -81,7 +157,13 @@ export function CompanySettingsPage() {
         className="rounded-2xl border border-line bg-white p-5 sm:p-6"
         noValidate
       >
-        <LogoUploadPlaceholder />
+        <LogoUploadField
+          logoUrl={company.logoUrl}
+          disabled={!isOwner}
+          isUploading={isUploadingLogo}
+          onUpload={(file) => void handleLogoUpload(file)}
+          onRemove={() => void handleLogoRemove()}
+        />
 
         <fieldset disabled={!isOwner} className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField label="ชื่อบริษัท (ไทย)" htmlFor="settings-name-th" error={errors.nameTh?.message}>

@@ -32,7 +32,6 @@ create type public.invitation_status as enum ('PENDING', 'ACCEPTED', 'EXPIRED', 
 -- value is what sends a user to /onboarding/template.
 create type public.document_template as enum ('EXECUTIVE_CLASSIC', 'MODERN_ACCENT');
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260702120100_tables.sql
 -- ============================================================
@@ -168,7 +167,6 @@ create trigger set_updated_at
   before update on public.company_members
   for each row execute function public.set_updated_at();
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260702120200_auth_trigger.sql
 -- ============================================================
@@ -203,7 +201,6 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260702120300_rls_helper_functions.sql
@@ -284,7 +281,6 @@ $$;
 comment on function public.is_company_owner(uuid) is
   'True if the current user is the owner_id of target_company_id (checked against companies, '
   'not company_members, so it stays correct even before the bootstrap OWNER membership row exists).';
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260702120400_rls_policies.sql
@@ -497,7 +493,6 @@ with check (
 
 -- No update/delete policy anywhere on this table: audit_logs is append-only.
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260703120000_create_company_with_owner.sql
 -- ============================================================
@@ -551,7 +546,6 @@ $$;
 grant execute on function public.create_company_with_owner(
   text, text, text, text, text, text, text, text, text
 ) to authenticated;
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260704120000_accept_invitation.sql
@@ -624,7 +618,6 @@ $$;
 
 grant execute on function public.accept_invitation(text) to authenticated;
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260705120000_account_deletion_support.sql
 -- ============================================================
@@ -675,7 +668,6 @@ alter table public.audit_logs
 -- actor_id = auth.uid() for ordinary client inserts, so this nullability
 -- is only ever reached via the delete-account Edge Function's service_role
 -- writes and the "set null" cascade above — never a client-supplied null.
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260706120000_numbering_settings.sql
@@ -766,7 +758,6 @@ on public.numbering_settings
 for delete
 to authenticated
 using (public.is_company_owner(company_id));
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260707120000_document_numbering_generation.sql
@@ -1079,7 +1070,6 @@ $$;
 
 grant execute on function public.approve_document(uuid) to authenticated;
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260708120000_customers.sql
 -- ============================================================
@@ -1162,7 +1152,6 @@ for update
 to authenticated
 using (public.has_company_role(company_id, array['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']::public.member_role[]))
 with check (public.has_company_role(company_id, array['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']::public.member_role[]));
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260709120000_document_drafts.sql
@@ -1317,7 +1306,6 @@ using (
   )
 );
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260710120000_document_status_actions.sql
 -- ============================================================
@@ -1422,7 +1410,6 @@ end;
 $$;
 
 grant execute on function public.cancel_document(uuid) to authenticated;
-
 
 -- ============================================================
 -- FILE: supabase/migrations/20260711120000_document_revisions.sql
@@ -1758,7 +1745,6 @@ $$;
 
 grant execute on function public.approve_document(uuid) to authenticated;
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260712120000_document_conversion.sql
 -- ============================================================
@@ -1885,7 +1871,6 @@ $$;
 
 grant execute on function public.create_document_conversion(uuid, text) to authenticated;
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260713120000_paid_cascade.sql
 -- ============================================================
@@ -1984,7 +1969,6 @@ $$;
 
 grant execute on function public.mark_document_paid(uuid) to authenticated;
 
-
 -- ============================================================
 -- FILE: supabase/migrations/20260714120000_conversion_after_paid.sql
 -- ============================================================
@@ -2070,3 +2054,248 @@ end;
 $$;
 
 grant execute on function public.create_document_conversion(uuid, text) to authenticated;
+
+-- ============================================================
+-- FILE: supabase/migrations/20260715120000_signature_slots.sql
+-- ============================================================
+-- Production readiness pass 2: Signature Slots
+--
+-- One company-wide ordered list of signature slots (buyer + seller by
+-- default, freeform extra slots) -- not per-document-type, per explicit
+-- product decision. Modeled on numbering_settings' RLS shape (company-level
+-- config: select = any member, write = owner only) since this is company
+-- configuration, not a per-document editable field.
+create table public.signature_slots (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies (id) on delete cascade,
+  label text not null check (char_length(label) between 1 and 100),
+  sort_order integer not null default 0,
+  -- True only for the two rows a fresh Settings page pre-populates
+  -- (ผู้ซื้อ/ผู้ขาย). Informational only -- an Owner can still relabel or
+  -- delete these like any other slot; nothing enforces this flag.
+  is_default boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index signature_slots_company_id_idx on public.signature_slots (company_id);
+
+create trigger set_updated_at
+  before update on public.signature_slots
+  for each row execute function public.set_updated_at();
+
+alter table public.signature_slots enable row level security;
+grant select, insert, update, delete on public.signature_slots to authenticated;
+
+create policy "signature_slots_select_same_company"
+on public.signature_slots
+for select
+to authenticated
+using (public.is_company_member(company_id));
+
+-- Insert/update/delete are owner-only, same as numbering_settings --
+-- signature configuration is company-level config, not a per-member
+-- preference or a per-document editable field.
+create policy "signature_slots_insert_owner_only"
+on public.signature_slots
+for insert
+to authenticated
+with check (public.is_company_owner(company_id));
+
+create policy "signature_slots_update_owner_only"
+on public.signature_slots
+for update
+to authenticated
+using (public.is_company_owner(company_id))
+with check (public.is_company_owner(company_id));
+
+create policy "signature_slots_delete_owner_only"
+on public.signature_slots
+for delete
+to authenticated
+using (public.is_company_owner(company_id));
+
+-- ============================================================
+-- FILE: supabase/migrations/20260716120000_document_template_minimal_print.sql
+-- ============================================================
+-- Production readiness pass 2: adds a third document template -- a plain
+-- black-line/minimal printable form style, alongside the existing
+-- EXECUTIVE_CLASSIC and MODERN_ACCENT. This migration does not use the
+-- new enum value anywhere else in this file (Postgres does not allow a
+-- newly added enum value to be used in the same transaction it was added
+-- in, in some versions) -- it is added here alone, on purpose.
+alter type public.document_template add value if not exists 'MINIMAL_PRINT';
+
+-- ============================================================
+-- FILE: supabase/migrations/20260717120000_document_installments.sql
+-- ============================================================
+-- Production readiness pass 2: Installment Payment Terms
+--
+-- document_installments is modeled directly on document_items: no
+-- company_id column (joins through documents), same
+-- select-any-company-member / write-only-while-DRAFT RLS shape. Also adds
+-- documents.installment_number, purely a display/pre-fill hint used by
+-- the "assisted single-step" installment-aware conversion flow -- never
+-- read by mark_document_paid() or create_document_conversion(), and does
+-- not change what amount create_document_conversion() copies (it still
+-- always copies the source's full grand_total, unchanged).
+alter table public.documents
+  add column installment_number integer;
+
+comment on column public.documents.installment_number is
+  'Set only when this Draft was pre-filled from picking a specific
+  installment during "แปลงเอกสาร" (production readiness pass 2, assisted
+  single-step). Purely a display/pre-fill hint -- never read by
+  mark_document_paid() or create_document_conversion(). Freely editable
+  while the Draft stays DRAFT via the existing documents_update_draft_only
+  policy; no new policy needed.';
+
+create table public.document_installments (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null references public.documents (id) on delete cascade,
+  installment_no integer not null check (installment_no > 0),
+  amount_type text not null default 'PERCENT' check (amount_type in ('PERCENT', 'FIXED')),
+  -- Raw input: a percent (0-100) if amount_type = PERCENT, or a baht value
+  -- if FIXED. computed_amount is what's actually shown/used everywhere
+  -- else -- same "app computes, DB stores the snapshot" approach as
+  -- document_items.amount / documents.grand_total.
+  amount_value numeric(14, 2) not null default 0,
+  computed_amount numeric(14, 2) not null default 0,
+  due_date date,
+  note text,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint document_installments_unique_no unique (document_id, installment_no)
+);
+
+create index document_installments_document_id_idx on public.document_installments (document_id);
+
+create trigger set_updated_at
+  before update on public.document_installments
+  for each row execute function public.set_updated_at();
+
+alter table public.document_installments enable row level security;
+grant select, insert, update, delete on public.document_installments to authenticated;
+
+create policy "document_installments_select_same_company"
+on public.document_installments
+for select
+to authenticated
+using (
+  exists (
+    select 1 from public.documents d
+    where d.id = document_installments.document_id
+      and public.is_company_member(d.company_id)
+  )
+);
+
+create policy "document_installments_insert_draft_only"
+on public.document_installments
+for insert
+to authenticated
+with check (
+  exists (
+    select 1 from public.documents d
+    where d.id = document_installments.document_id
+      and d.status = 'DRAFT'
+      and public.has_company_role(d.company_id, array['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']::public.member_role[])
+  )
+);
+
+create policy "document_installments_update_draft_only"
+on public.document_installments
+for update
+to authenticated
+using (
+  exists (
+    select 1 from public.documents d
+    where d.id = document_installments.document_id
+      and d.status = 'DRAFT'
+      and public.has_company_role(d.company_id, array['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']::public.member_role[])
+  )
+)
+with check (
+  exists (
+    select 1 from public.documents d
+    where d.id = document_installments.document_id
+      and d.status = 'DRAFT'
+      and public.has_company_role(d.company_id, array['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']::public.member_role[])
+  )
+);
+
+create policy "document_installments_delete_draft_only"
+on public.document_installments
+for delete
+to authenticated
+using (
+  exists (
+    select 1 from public.documents d
+    where d.id = document_installments.document_id
+      and d.status = 'DRAFT'
+      and public.has_company_role(d.company_id, array['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']::public.member_role[])
+  )
+);
+
+-- ============================================================
+-- FILE: supabase/migrations/20260718120000_company_logo_storage.sql
+-- ============================================================
+-- Production readiness pass 2: Company Logo Storage
+--
+-- companies.logo_url already exists (Phase 1B) but nothing ever wrote to
+-- it. Public-read bucket (a logo isn't sensitive data), owner-write-only,
+-- scoped by path: files live at `${company_id}/logo.<ext>` so the write
+-- policy can authorize from the path alone, without needing a lookup into
+-- companies for the write policy. insert into storage.buckets in a plain
+-- SQL migration is the standard, documented Supabase pattern --
+-- storage.buckets is an ordinary table owned by the storage extension,
+-- present in every project; no CLI/dashboard step is required for bucket
+-- creation itself.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('company-logos', 'company-logos', true, 2097152, array['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'])
+on conflict (id) do nothing;
+
+-- Public read (the bucket's public=true flag already covers anon/CDN GET,
+-- but storage.objects has RLS enabled by default on every project, so an
+-- explicit SELECT policy is still needed for authenticated in-app reads,
+-- e.g. a settings page fetching the current logo to preview it).
+create policy "company_logos_public_select"
+on storage.objects
+for select
+to public
+using (bucket_id = 'company-logos');
+
+-- Write access: only an ACTIVE OWNER of the company whose id is the first
+-- path segment (storage.foldername splits the object name on '/', so
+-- foldername(name)[1] is the company_id prefix every upload must use,
+-- e.g. '11111111-.../logo.png').
+create policy "company_logos_owner_insert"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'company-logos'
+  and public.is_company_owner((storage.foldername(name))[1]::uuid)
+);
+
+create policy "company_logos_owner_update"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'company-logos'
+  and public.is_company_owner((storage.foldername(name))[1]::uuid)
+)
+with check (
+  bucket_id = 'company-logos'
+  and public.is_company_owner((storage.foldername(name))[1]::uuid)
+);
+
+create policy "company_logos_owner_delete"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'company-logos'
+  and public.is_company_owner((storage.foldername(name))[1]::uuid)
+);

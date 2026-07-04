@@ -10,7 +10,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type MemberRole = 'OWNER' | 'ADMIN' | 'ACCOUNTANT' | 'EDITOR' | 'VIEWER'
 export type MemberStatus = 'ACTIVE' | 'INVITED' | 'DISABLED'
 export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'CANCELLED'
-export type DocumentTemplateEnum = 'EXECUTIVE_CLASSIC' | 'MODERN_ACCENT'
+export type DocumentTemplateEnum = 'EXECUTIVE_CLASSIC' | 'MODERN_ACCENT' | 'MINIMAL_PRINT'
 export type ResetPolicy = 'DAILY' | 'MONTHLY' | 'YEARLY' | 'NEVER'
 export type DocumentTypeCode =
   | 'RFQ'
@@ -94,6 +94,9 @@ export type DocumentRow = {
   // Phase 6A addition — see
   // supabase/migrations/20260712120000_document_conversion.sql.
   source_document_id: string | null
+  // Production readiness pass 2 addition — see
+  // supabase/migrations/20260717120000_document_installments.sql.
+  installment_number: number | null
 }
 
 export interface Database {
@@ -334,6 +337,7 @@ export interface Database {
           parent_document_id?: string | null
           revision_no?: number | null
           source_document_id?: string | null
+          installment_number?: number | null
         }
         // Phase 4A added a scoped UPDATE grant/policy (Draft-only, status
         // and document_number pinned — see
@@ -366,6 +370,7 @@ export interface Database {
           parent_document_id?: string | null
           revision_no?: number | null
           source_document_id?: string | null
+          installment_number?: number | null
         }
         Relationships: []
       }
@@ -501,6 +506,78 @@ export interface Database {
           updated_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
+        }
+        Relationships: []
+      }
+      signature_slots: {
+        Row: {
+          id: string
+          company_id: string
+          label: string
+          sort_order: number
+          is_default: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          label: string
+          sort_order?: number
+          is_default?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          label?: string
+          sort_order?: number
+          is_default?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      document_installments: {
+        Row: {
+          id: string
+          document_id: string
+          installment_no: number
+          amount_type: 'PERCENT' | 'FIXED'
+          amount_value: number
+          computed_amount: number
+          due_date: string | null
+          note: string | null
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          installment_no: number
+          amount_type?: 'PERCENT' | 'FIXED'
+          amount_value?: number
+          computed_amount?: number
+          due_date?: string | null
+          note?: string | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          installment_no?: number
+          amount_type?: 'PERCENT' | 'FIXED'
+          amount_value?: number
+          computed_amount?: number
+          due_date?: string | null
+          note?: string | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }

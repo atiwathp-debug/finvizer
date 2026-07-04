@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowRightLeft, Download, GitBranch, Loader2, Pencil } from 'lucide-react'
+import { ArrowRightLeft, Download, GitBranch, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ErrorState } from '@/components/shared/ErrorState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -11,11 +11,14 @@ import { Select } from '@/components/ui/Select'
 import { DocumentPreview } from '@/features/documents/DocumentPreview'
 import { DocumentTimeline } from '@/features/documents/DocumentTimeline'
 import { listCustomers } from '@/lib/supabase/customers'
+import { listSignatureSlots } from '@/lib/supabase/signatureSlots'
+import { listDocumentInstallments } from '@/lib/supabase/documentInstallments'
 import {
   approveDocument,
   cancelDocument,
   createDocumentConversion,
   createDocumentRevision,
+  deleteDraftDocument,
   getDocumentById,
   listDocumentConversions,
   listDocumentRevisions,
@@ -30,6 +33,8 @@ import { documentConversionMap, documentTypeLabels, revisionLabel, type Document
 import type { DocumentTotalsResult } from '@/lib/calculations/documentTotals'
 import type { AuditLogRecord } from '@/types/auditLog'
 import type { Customer } from '@/types/customer'
+import type { SignatureSlot } from '@/types/signature'
+import type { ConversionInstallmentPick, DocumentInstallment } from '@/types/documentInstallment'
 
 export function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -42,6 +47,8 @@ export function DocumentDetailPage() {
 
   const [document, setDocument] = useState<DocumentRecord | null | undefined>(undefined)
   const [customers, setCustomers] = useState<Customer[] | null>(null)
+  const [signatureSlots, setSignatureSlots] = useState<SignatureSlot[]>([])
+  const [installments, setInstallments] = useState<DocumentInstallment[]>([])
   const [originalDocument, setOriginalDocument] = useState<DocumentRecord | null>(null)
   const [revisions, setRevisions] = useState<DocumentRecord[]>([])
   const [sourceDocument, setSourceDocument] = useState<DocumentRecord | null>(null)
@@ -52,16 +59,25 @@ export function DocumentDetailPage() {
   const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [convertDialogOpen, setConvertDialogOpen] = useState(false)
   const [convertTargetType, setConvertTargetType] = useState<DocumentType | ''>('')
+  const [convertInstallmentNo, setConvertInstallmentNo] = useState<number | ''>('')
 
   const load = useCallback(async () => {
     if (!company || !id) return
     setLoadError(null)
     try {
-      const [doc, customerList] = await Promise.all([getDocumentById(id), listCustomers(company.id)])
+      const [doc, customerList, slots] = await Promise.all([
+        getDocumentById(id),
+        listCustomers(company.id),
+        listSignatureSlots(company.id),
+      ])
       setDocument(doc)
       setCustomers(customerList)
+      setSignatureSlots(slots)
+      setInstallments(doc ? await listDocumentInstallments(doc.id) : [])
 
       if (doc) {
         const originalId = doc.parentDocumentId ?? doc.id
@@ -145,6 +161,36 @@ export function DocumentDetailPage() {
     }
   }
 
+  const handleDelete = async () => {
+    if (!id || !user || !company) return
+    setIsDeleting(true)
+    try {
+      // Only DRAFTs are ever deletable — deleteDraftDocument/RLS both
+      // enforce this server-side too, so this button never appears (and
+      // never needs to succeed) for anything past DRAFT. Approved/numbered
+      // documents use "ยกเลิกเอกสาร" (cancel/void) instead, preserving the
+      // document number and audit trail — see the button's tooltip below.
+      await deleteDraftDocument(id)
+      void logAuditEvent({
+        companyId: company.id,
+        actorId: user.id,
+        action: 'DELETE_DOCUMENT_DRAFT',
+        entityType: 'document',
+        entityId: id,
+      })
+      toast({ title: 'ลบฉบับร่างสำเร็จ', tone: 'success' })
+      navigate('/documents')
+    } catch (error) {
+      toast({
+        title: 'ลบฉบับร่างไม่สำเร็จ',
+        description: error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
+        tone: 'error',
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const handleCreateRevision = async () => {
     if (!id || !user) return
     setIsActing(true)
@@ -167,10 +213,23 @@ export function DocumentDetailPage() {
     if (!id || !user || !convertTargetType) return
     setIsActing(true)
     try {
+      // createDocumentConversion/create_document_conversion is called with
+      // exactly the same 3 arguments as before this feature existed — the
+      // picked installment is never sent to it, only used afterward to
+      // pre-fill the resulting Draft's edit form client-side (see
+      // DocumentFormPage.tsx).
       const converted = await createDocumentConversion(id, convertTargetType, user.id)
       toast({ title: 'แปลงเอกสารสำเร็จ', tone: 'success' })
       setConvertDialogOpen(false)
-      navigate(`/documents/${converted.id}/edit`)
+      const pickedInstallment = installments.find((i) => i.installmentNo === convertInstallmentNo)
+      const installmentPick: ConversionInstallmentPick | undefined = pickedInstallment
+        ? {
+            installmentNumber: pickedInstallment.installmentNo,
+            computedAmount: pickedInstallment.computedAmount,
+            note: pickedInstallment.note,
+          }
+        : undefined
+      navigate(`/documents/${converted.id}/edit`, installmentPick ? { state: { installmentPick } } : undefined)
     } catch (error) {
       toast({
         title: 'แปลงเอกสารไม่สำเร็จ',
@@ -191,7 +250,7 @@ export function DocumentDetailPage() {
       // exports a PDF, instead of bloating everyone's initial page load.
       const { documentPdfFileName, generateDocumentPdf } = await import('@/lib/pdf/generateDocumentPdf')
       const customer = customers?.find((c) => c.id === document.customerId) ?? null
-      const blob = await generateDocumentPdf({ company, customer, document })
+      const blob = await generateDocumentPdf({ company, customer, document, signatureSlots, installments })
       const url = URL.createObjectURL(blob)
       // window.document, not the `document` state variable shadowing it above.
       const link = window.document.createElement('a')
@@ -291,6 +350,17 @@ export function DocumentDetailPage() {
                 </Link>
               </Button>
             )}
+            {document.status === 'DRAFT' && canEdit && (
+              <Button
+                variant="danger"
+                onClick={() => setDeleteConfirmOpen(true)}
+                disabled={isDeleting}
+                title="ลบฉบับร่างนี้อย่างถาวร — ใช้ได้เฉพาะฉบับร่างที่ยังไม่มีเลขที่เอกสาร"
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                ลบฉบับร่าง
+              </Button>
+            )}
             {document.status === 'DRAFT' && canApprove && (
               <Button onClick={() => setApproveConfirmOpen(true)} disabled={isActing}>
                 อนุมัติเอกสาร
@@ -302,7 +372,12 @@ export function DocumentDetailPage() {
               </Button>
             )}
             {document.status === 'APPROVED' && canApprove && (
-              <Button variant="danger" onClick={() => setCancelConfirmOpen(true)} disabled={isActing}>
+              <Button
+                variant="danger"
+                onClick={() => setCancelConfirmOpen(true)}
+                disabled={isActing}
+                title="เอกสารที่มีเลขที่เอกสารแล้วไม่สามารถลบได้ — ยกเลิกจะรักษาเลขที่เอกสารและประวัติการใช้งานไว้"
+              >
                 ยกเลิกเอกสาร
               </Button>
             )}
@@ -317,6 +392,7 @@ export function DocumentDetailPage() {
                 variant="secondary"
                 onClick={() => {
                   setConvertTargetType('')
+                  setConvertInstallmentNo('')
                   setConvertDialogOpen(true)
                 }}
                 disabled={isActing}
@@ -356,6 +432,8 @@ export function DocumentDetailPage() {
       <DocumentPreview
         companyName={company.nameTh}
         companyAddress={company.address}
+        logoUrl={company.logoUrl}
+        template={company.documentTemplate}
         documentTypeLabel={documentTypeLabels[document.documentType]}
         documentNumber={document.documentNumber}
         customerName={customer?.name}
@@ -372,6 +450,9 @@ export function DocumentDetailPage() {
         totals={totals}
         vatMode={document.vatMode}
         note={document.note}
+        signatureSlots={signatureSlots}
+        installmentPlan={installments.length > 0 ? 'INSTALLMENT' : 'FULL'}
+        installments={installments}
       />
 
       {revisions.length > 0 && originalDocument && (
@@ -467,6 +548,16 @@ export function DocumentDetailPage() {
         onConfirm={() => void handleCancel()}
       />
 
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="ลบฉบับร่าง"
+        description="ฉบับร่างนี้จะถูกลบอย่างถาวรและไม่สามารถกู้คืนได้ (ยังไม่มีเลขที่เอกสาร จึงลบได้โดยไม่กระทบเลขที่เอกสารหรือประวัติการใช้งานอื่น) ต้องการดำเนินการต่อหรือไม่"
+        confirmLabel="ลบฉบับร่าง"
+        tone="danger"
+        onConfirm={() => void handleDelete()}
+      />
+
       <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
         <DialogContent>
           <DialogTitle>แปลงเอกสาร</DialogTitle>
@@ -488,6 +579,23 @@ export function DocumentDetailPage() {
               ))}
             </Select>
           </div>
+          {installments.length > 0 && (
+            <div className="mt-4">
+              <Select
+                value={convertInstallmentNo}
+                onChange={(e) => setConvertInstallmentNo(e.target.value ? Number(e.target.value) : '')}
+                aria-label="สำหรับงวดที่"
+              >
+                <option value="">ไม่ระบุ (คัดลอกยอดเต็มจำนวนตามปกติ)</option>
+                {installments.map((installment) => (
+                  <option key={installment.id} value={installment.installmentNo}>
+                    สำหรับงวดที่ {installment.installmentNo}
+                    {installment.note ? ` — ${installment.note}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <div className="mt-6 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setConvertDialogOpen(false)}>
               ยกเลิก

@@ -3,8 +3,9 @@ import { incrementMockSequence } from '@/lib/mock/mockNumberingSequences'
 import { listMockNumberingSettings } from '@/lib/mock/mockNumbering'
 import { getMockCompanyById } from '@/lib/mock/mockCompany'
 import { renderPatternPreview } from '@/lib/validations/numberingPattern'
-import { calculateDocumentTotals } from '@/lib/calculations/documentTotals'
+import { calculateDocumentTotals, calculateInstallmentAmount } from '@/lib/calculations/documentTotals'
 import { appendMockAuditLog } from '@/lib/mock/mockAuditLogs'
+import { saveMockDocumentInstallments } from '@/lib/mock/mockDocumentInstallments'
 import {
   canConvertDocumentType,
   documentTypeShortCode,
@@ -13,6 +14,7 @@ import {
   type LineItem,
 } from '@/types/document'
 import type { DocumentFormValues } from '@/lib/validations/document'
+import type { DocumentInstallment } from '@/types/documentInstallment'
 import type { Customer } from '@/types/customer'
 
 const DOCUMENTS_KEY = 'finvizer_mock_documents'
@@ -74,12 +76,20 @@ export function createMockDraftDocument(
     parentDocumentId: null,
     revisionNo: null,
     sourceDocumentId: null,
+    installmentNumber: null,
   }
   writeDocuments([...readDocuments(), document])
   return document
 }
 
-/** Only Drafts are deletable — they never had a running number, so this can never create a gap. */
+/**
+ * Only Drafts are deletable — they never had a running number, so this can
+ * never create a gap. Also clears the Draft's own installment rows, since
+ * Mock Mode has no foreign-key `on delete cascade` to do it automatically
+ * the way the real document_installments table does (see
+ * supabase/migrations/20260717120000_document_installments.sql) — without
+ * this, deleted Drafts would leave orphaned rows behind in localStorage.
+ */
 export function deleteMockDraftDocument(documentId: string): void {
   const documents = readDocuments()
   const target = documents.find((d) => d.id === documentId)
@@ -88,6 +98,7 @@ export function deleteMockDraftDocument(documentId: string): void {
     throw new Error('ลบได้เฉพาะเอกสารที่ยังเป็นฉบับร่างเท่านั้น')
   }
   writeDocuments(documents.filter((d) => d.id !== documentId))
+  saveMockDocumentInstallments(documentId, [])
 }
 
 /**
@@ -153,8 +164,10 @@ export function saveMockDocumentDraft(
       parentDocumentId: null,
       revisionNo: null,
       sourceDocumentId: null,
+      installmentNumber: input.installmentNumber ?? null,
     }
     writeDocuments([...readDocuments(), document])
+    saveMockDocumentInstallments(document.id, buildMockInstallments(document.id, input, totals.grandTotal))
     return document
   }
 
@@ -183,11 +196,33 @@ export function saveMockDocumentDraft(
     vatAmount: totals.vatAmount,
     grandTotal: totals.grandTotal,
     items,
+    installmentNumber: input.installmentNumber ?? null,
     updatedAt: now,
   }
   documents[index] = updated
   writeDocuments(documents)
+  saveMockDocumentInstallments(updated.id, buildMockInstallments(updated.id, input, totals.grandTotal))
   return updated
+}
+
+/** Builds the persisted DocumentInstallment rows for a save — empty when the plan is FULL, matching document_items' own "no rows while inapplicable" shape. */
+function buildMockInstallments(
+  documentId: string,
+  input: DocumentFormValues,
+  grandTotal: number,
+): DocumentInstallment[] {
+  if (input.installmentPlan !== 'INSTALLMENT') return []
+  return input.installments.map((installment, index) => ({
+    id: crypto.randomUUID(),
+    documentId,
+    installmentNo: installment.installmentNo,
+    amountType: installment.amountType,
+    amountValue: installment.amountValue,
+    computedAmount: calculateInstallmentAmount(installment.amountType, installment.amountValue, grandTotal),
+    dueDate: installment.dueDate || null,
+    note: installment.note || null,
+    sortOrder: index,
+  }))
 }
 
 /**
@@ -386,6 +421,7 @@ export function createMockDocumentRevision(documentId: string, createdBy: string
     approvedAt: null,
     createdAt: now,
     updatedAt: now,
+    installmentNumber: null,
   }
   writeDocuments([...documents, revision])
 
@@ -466,6 +502,7 @@ export function createMockDocumentConversion(
     approvedAt: null,
     createdAt: now,
     updatedAt: now,
+    installmentNumber: null,
   }
   writeDocuments([...documents, converted])
 
