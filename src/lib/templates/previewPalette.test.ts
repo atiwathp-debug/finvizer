@@ -2,26 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { getTemplatePalette } from './previewPalette'
 
 describe('getTemplatePalette', () => {
-  it('returns a distinct palette for each of the 3 built-in templates', () => {
+  it('returns a distinct accent color for each of the 3 built-in templates', () => {
     const executive = getTemplatePalette('EXECUTIVE_CLASSIC')
     const modern = getTemplatePalette('MODERN_ACCENT')
     const minimal = getTemplatePalette('MINIMAL_PRINT')
 
-    expect(executive.header).not.toBe(modern.header)
-    expect(executive.header).not.toBe(minimal.header)
-    expect(modern.header).not.toBe(minimal.header)
+    expect(executive.accent).not.toBe(modern.accent)
+    expect(executive.accent).not.toBe(minimal.accent)
+    expect(modern.accent).not.toBe(minimal.accent)
   })
 
-  it('gives MINIMAL_PRINT a header border instead of a filled background', () => {
-    const minimal = getTemplatePalette('MINIMAL_PRINT')
-    expect(minimal.headerBorderColor).toBeDefined()
-    expect(minimal.header).toBe('#ffffff')
+  it('gives MINIMAL_PRINT pure black as its only color', () => {
+    expect(getTemplatePalette('MINIMAL_PRINT').accent).toBe('#000000')
   })
 
-  it('never lets the grand-total text color match its own background (no invisible text)', () => {
+  it('never lets accentText match accent (no invisible text on a filled accent background)', () => {
     for (const template of ['EXECUTIVE_CLASSIC', 'MODERN_ACCENT', 'MINIMAL_PRINT'] as const) {
       const palette = getTemplatePalette(template)
-      expect(palette.grandTotalTextColor).not.toBe(palette.totalBg)
+      expect(palette.accentText).not.toBe(palette.accent)
     }
   })
 

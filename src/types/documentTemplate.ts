@@ -8,27 +8,27 @@ export interface DocumentTemplateMeta {
   swatch: [string, string, string]
 }
 
-/** The 2 built-in document templates (Phase 2A) — every company must pick one before using the main document workflow. */
+/** The 3 built-in document templates — every company must pick one before using the main document workflow. */
 export const documentTemplateCatalog: DocumentTemplateMeta[] = [
   {
     id: 'EXECUTIVE_CLASSIC',
     name: 'Executive Classic',
-    tagline: 'ทางการ น่าเชื่อถือ',
-    description: 'โทนสีเข้ม เรียบหรู เหมาะกับงานบัญชี งานภาษี และเอกสารระดับองค์กรที่ต้องการความเป็นทางการ',
-    swatch: ['#0f172a', '#334155', '#ffffff'],
+    tagline: 'ทางการ แบบฟอร์มธุรกิจไทย',
+    description: 'กรอบชัดเจน หัวเอกสารจัดกึ่งกลาง มีกล่องข้อมูลลูกค้า/เอกสาร ตารางเส้นหนา เหมาะกับงานบัญชี งานภาษี และธุรกิจไทยที่ต้องการความน่าเชื่อถือ',
+    swatch: ['#1e3a5f', '#334155', '#ffffff'],
   },
   {
     id: 'MODERN_ACCENT',
     name: 'Modern Accent',
-    tagline: 'ทันสมัย โดดเด่นด้วยสีแบรนด์',
-    description: 'โทนสีสดใส แยกแบรนด์ชัดเจน เหมาะกับบริษัทบริการและธุรกิจสายเทคโนโลยีที่ต้องการความทันสมัย',
-    swatch: ['#4f46e5', '#10b981', '#f8fafc'],
+    tagline: 'ทันสมัย โปร่งโล่ง สีส้มเด่น',
+    description: 'เลย์เอาต์โปร่งโล่ง สีขาวเป็นหลัก เน้นสีส้มจุดเดียวที่ชื่อเอกสารและยอดรวม เหมาะกับบริษัทบริการและธุรกิจสายเทคโนโลยีที่ต้องการความทันสมัย',
+    swatch: ['#ea580c', '#1e293b', '#f8fafc'],
   },
   {
     id: 'MINIMAL_PRINT',
     name: 'Minimal Print',
-    tagline: 'เรียบง่าย ประหยัดหมึกพิมพ์',
-    description: 'เส้นขอบสีดำล้วน ไม่มีพื้นหลังสี เหมาะกับการพิมพ์เอกสารขาวดำและงานที่เน้นความเรียบง่าย',
+    tagline: 'แบบฟอร์มราชการ เรียบง่าย',
+    description: 'เส้นขอบสีดำล้วน ไม่มีสีตกแต่งใด ๆ กล่องข้อมูลลูกค้า/เอกสารแบบฟอร์มทางการ เหมาะกับการพิมพ์เอกสารขาวดำและงานที่เน้นความเรียบง่าย',
     swatch: ['#000000', '#ffffff', '#000000'],
   },
 ]

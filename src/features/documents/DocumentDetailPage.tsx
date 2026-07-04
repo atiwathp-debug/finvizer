@@ -25,6 +25,7 @@ import {
   markDocumentPaid,
 } from '@/lib/supabase/documents'
 import { listAuditLogsForEntity, logAuditEvent } from '@/lib/supabase/auditLog'
+import { logError } from '@/lib/utils/debugLog'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from '@/lib/permissions/documentPermissions'
@@ -69,15 +70,29 @@ export function DocumentDetailPage() {
     if (!company || !id) return
     setLoadError(null)
     try {
-      const [doc, customerList, slots] = await Promise.all([
-        getDocumentById(id),
-        listCustomers(company.id),
-        listSignatureSlots(company.id),
+      // Signature slots and installments are non-critical, cosmetic/
+      // supplementary data — a failure fetching either (e.g. a pass-2
+      // migration not yet applied on this Supabase project) must never
+      // block the entire document page from loading, so they're fetched
+      // outside the core Promise.all and degrade to an empty list on error
+      // (the same fallback as a company/document with none configured).
+      const [doc, customerList] = await Promise.all([getDocumentById(id), listCustomers(company.id)])
+      const [slots, installmentRows] = await Promise.all([
+        listSignatureSlots(company.id).catch((error) => {
+          logError('DocumentDetailPage.load.signatureSlots', error, { companyId: company.id })
+          return []
+        }),
+        doc
+          ? listDocumentInstallments(doc.id).catch((error) => {
+              logError('DocumentDetailPage.load.installments', error, { documentId: doc.id })
+              return []
+            })
+          : Promise.resolve([]),
       ])
       setDocument(doc)
       setCustomers(customerList)
       setSignatureSlots(slots)
-      setInstallments(doc ? await listDocumentInstallments(doc.id) : [])
+      setInstallments(installmentRows)
 
       if (doc) {
         const originalId = doc.parentDocumentId ?? doc.id

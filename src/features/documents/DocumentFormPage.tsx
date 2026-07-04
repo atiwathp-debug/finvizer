@@ -9,6 +9,7 @@ import { listSignatureSlots } from '@/lib/supabase/signatureSlots'
 import { listDocumentInstallments } from '@/lib/supabase/documentInstallments'
 import { getDocumentById, saveDraftDocument } from '@/lib/supabase/documents'
 import { logAuditEvent } from '@/lib/supabase/auditLog'
+import { logError } from '@/lib/utils/debugLog'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { useHasCompanyRole } from '@/lib/permissions/useHasCompanyRole'
@@ -111,15 +112,31 @@ export function DocumentFormPage() {
     if (!company) return
     setLoadError(null)
     try {
-      const [customerList, document, slots] = await Promise.all([
+      const [customerList, document] = await Promise.all([
         listCustomers(company.id),
         id ? getDocumentById(id) : Promise.resolve(null),
-        listSignatureSlots(company.id),
+      ])
+      // Signature slots and installments are non-critical, cosmetic/
+      // supplementary data — a failure fetching either (e.g. a pass-2
+      // migration not yet applied on this Supabase project) must never
+      // block this form from loading, so they're fetched outside the core
+      // Promise.all and degrade to an empty list on error.
+      const [slots, installmentRows] = await Promise.all([
+        listSignatureSlots(company.id).catch((error) => {
+          logError('DocumentFormPage.load.signatureSlots', error, { companyId: company.id })
+          return []
+        }),
+        document
+          ? listDocumentInstallments(document.id).catch((error) => {
+              logError('DocumentFormPage.load.installments', error, { documentId: document.id })
+              return []
+            })
+          : Promise.resolve([]),
       ])
       setCustomers(customerList)
       setExistingDocument(document)
       setSignatureSlots(slots)
-      setInstallments(document ? await listDocumentInstallments(document.id) : [])
+      setInstallments(installmentRows)
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง')
     }

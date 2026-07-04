@@ -1,57 +1,44 @@
 import type { DocumentTemplateEnum } from '@/types/database'
 
 export interface TemplatePalette {
-  header: string
-  headerText: string
+  /**
+   * This template's single accent/brand color — a solid dark fill behind
+   * white text for the Formal template's header/totals box, a sparingly-
+   * used bright accent for the Modern template's title/totals pill, or
+   * pure black for the Minimal template (used identically for every line,
+   * border, and letter — there is no second color).
+   */
   accent: string
-  totalBg: string
-  /**
-   * Only set for templates with no header background fill (Minimal
-   * Print) — a colored header block would defeat the "black-line only,
-   * no color" point of that style, so it draws a border around the
-   * header instead of filling it.
-   */
-  headerBorderColor?: string
-  /**
-   * Text color for the grand-total box. Separate from `header` because
-   * the grand-total box always assumes `header` is a dark color it can
-   * safely use as high-contrast text against `totalBg` (a light tint) —
-   * true for EXECUTIVE_CLASSIC/MODERN_ACCENT, but MINIMAL_PRINT's
-   * `header` is white, which would render invisible white-on-white text
-   * if reused here.
-   */
-  grandTotalTextColor: string
+  /** Text color guaranteed readable when `accent` is used as a background fill. */
+  accentText: string
 }
 
 /**
  * Shared between the on-screen preview (DocumentPreview.tsx) and the PDF
- * export (DocumentPdf.tsx) so both always render the exact same colors
- * for a given template. EXECUTIVE_CLASSIC/MODERN_ACCENT values are
- * unchanged from before this file existed (value-preserving refactor);
- * MINIMAL_PRINT is the new third template (production readiness pass 2).
+ * export (DocumentPdf.tsx) so both always use the exact same accent color
+ * for a given template. As of production readiness pass 2's redesign, the
+ * 3 templates are differentiated primarily by *layout structure* (each
+ * has its own render path in both files) rather than by color alone — this
+ * palette only supplies the one brand color each layout needs.
  */
 export const documentTemplatePalette: Record<DocumentTemplateEnum, TemplatePalette> = {
+  // Formal Thai business style — dark navy box fill, echoes traditional
+  // Thai accounting-software forms (boxed header, boxed totals).
   EXECUTIVE_CLASSIC: {
-    header: '#0f172a',
-    headerText: '#ffffff',
-    accent: '#334155',
-    totalBg: '#f1f5f9',
-    grandTotalTextColor: '#0f172a',
+    accent: '#1e3a5f',
+    accentText: '#ffffff',
   },
+  // Clean modern style — a single warm orange accent against an otherwise
+  // all-white, spacious layout.
   MODERN_ACCENT: {
-    header: '#4f46e5',
-    headerText: '#ffffff',
-    accent: '#059669',
-    totalBg: '#ecfdf5',
-    grandTotalTextColor: '#4f46e5',
+    accent: '#ea580c',
+    accentText: '#ffffff',
   },
+  // Minimal black-line official form — no color at all; accent doubles as
+  // every border/line/letter.
   MINIMAL_PRINT: {
-    header: '#ffffff',
-    headerText: '#000000',
     accent: '#000000',
-    totalBg: '#ffffff',
-    headerBorderColor: '#000000',
-    grandTotalTextColor: '#000000',
+    accentText: '#ffffff',
   },
 }
 

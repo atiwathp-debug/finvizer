@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { listSignatureSlots, saveSignatureSlots, type SignatureSlotInput } from '@/lib/supabase/signatureSlots'
 import { logAuditEvent } from '@/lib/supabase/auditLog'
+import { logError } from '@/lib/utils/debugLog'
 import { DEFAULT_SIGNATURE_SLOT_LABELS } from '@/types/signature'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { useHasCompanyRole } from '@/lib/permissions/useHasCompanyRole'
 import { PhaseNotice } from '@/components/shared/PhaseNotice'
 import { TableSkeleton } from '@/components/shared/LoadingSkeleton'
-import { ErrorState } from '@/components/shared/ErrorState'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/stores/toastStore'
@@ -23,12 +23,10 @@ export function SignatureSettingsPage() {
   const isOwner = useHasCompanyRole(['OWNER'])
 
   const [editableSlots, setEditableSlots] = useState<SignatureSlotInput[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
   const load = useCallback(async () => {
     if (!company) return
-    setLoadError(null)
     try {
       const slots = await listSignatureSlots(company.id)
       // A company with no slots yet gets the two defaults pre-populated in
@@ -40,7 +38,15 @@ export function SignatureSettingsPage() {
           : defaultEditableSlots(),
       )
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง')
+      // Signature slots are non-critical, cosmetic config — a failed read
+      // (e.g. a fresh company, a transient network error) must never block
+      // this page or fall back to a hard error screen, matching the same
+      // "never show a blank signature area" philosophy as
+      // withSignatureFallback() used by the document preview/PDF. Log for
+      // diagnostics, but degrade to the same editable defaults as an empty
+      // list; saving still surfaces its own error toast if it fails.
+      logError('SignatureSettingsPage.load', error, { companyId: company.id })
+      setEditableSlots(defaultEditableSlots())
     }
   }, [company])
 
@@ -49,10 +55,6 @@ export function SignatureSettingsPage() {
   }, [load])
 
   if (!company) return null
-
-  if (loadError) {
-    return <ErrorState description={loadError} onRetry={() => void load()} />
-  }
 
   const updateLabel = (index: number, label: string) => {
     setEditableSlots((prev) => prev?.map((slot, i) => (i === index ? { ...slot, label } : slot)) ?? prev)
