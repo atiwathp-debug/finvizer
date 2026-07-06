@@ -29,7 +29,12 @@ import { logError } from '@/lib/utils/debugLog'
 import { buildAppUrl } from '@/lib/utils/url'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
-import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from '@/lib/permissions/documentPermissions'
+import {
+  canApproveDocument,
+  canEditDocument,
+  canExportDocumentPdf,
+  canMarkDocumentPaid,
+} from '@/lib/permissions/documentPermissions'
 import { toast } from '@/stores/toastStore'
 import { resolveDocumentTypeLabel } from '@/lib/templates/documentTemplateText'
 import { documentConversionMap, documentTypeLabels, revisionLabel, type DocumentRecord, type DocumentType } from '@/types/document'
@@ -312,10 +317,12 @@ export function DocumentDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <StatusBadge status={document.status} />
-            <Button variant="secondary" onClick={handleExportPdf}>
-              <Download className="size-4" aria-hidden="true" />
-              ส่งออก PDF
-            </Button>
+            {canExportDocumentPdf(document.status) && (
+              <Button variant="secondary" onClick={handleExportPdf}>
+                <Download className="size-4" aria-hidden="true" />
+                ส่งออก PDF
+              </Button>
+            )}
             {document.status === 'DRAFT' && canEdit && (
               <Button asChild variant="secondary">
                 <Link to={`/documents/${document.id}/edit`}>

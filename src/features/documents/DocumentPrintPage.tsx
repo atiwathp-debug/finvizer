@@ -8,6 +8,7 @@ import { listDocumentInstallments } from '@/lib/supabase/documentInstallments'
 import { getDocumentById } from '@/lib/supabase/documents'
 import { logAuditEvent } from '@/lib/supabase/auditLog'
 import { logError } from '@/lib/utils/debugLog'
+import { canExportDocumentPdf } from '@/lib/permissions/documentPermissions'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { resolveDocumentTypeLabel } from '@/lib/templates/documentTemplateText'
@@ -73,6 +74,11 @@ export function DocumentPrintPage() {
 
   useEffect(() => {
     if (!document || !company) return
+    // A DRAFT has no document number yet and its content can still change
+    // freely — never auto-print or log an export for one (see
+    // canExportDocumentPdf's comment). The render below shows a blocking
+    // message instead of the preview for this same case.
+    if (!canExportDocumentPdf(document.status)) return
     window.document.title = documentPdfFileName(document, documentTypeLabels[document.documentType])
     if (hasLoggedExport.current || !user) return
     hasLoggedExport.current = true
@@ -101,6 +107,14 @@ export function DocumentPrintPage() {
 
   if (document === null) {
     return <p className="p-6 text-sm text-ink-muted">ไม่พบเอกสาร</p>
+  }
+
+  if (!canExportDocumentPdf(document.status)) {
+    return (
+      <p className="p-6 text-sm text-red-600">
+        เอกสารฉบับร่างยังไม่สามารถส่งออกเป็น PDF ได้ กรุณาอนุมัติเอกสารก่อน
+      </p>
+    )
   }
 
   const customer = customers.find((c) => c.id === document.customerId)

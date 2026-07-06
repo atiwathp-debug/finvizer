@@ -39,3 +39,17 @@ export function canMarkDocumentPaid(
 ): boolean {
   return canApproveDocument(role) && status === 'APPROVED' && PAYABLE_DOCUMENT_TYPES.includes(documentType)
 }
+
+/**
+ * PDF export (the "ส่งออก PDF" button and the `/documents/:id/print` route)
+ * is only meaningful once a document has an official document number —
+ * that only ever happens on/after approval (see the `documentNumber`
+ * comment in src/types/document.ts). A DRAFT has no number and its content
+ * can still change freely, so exporting one to PDF would produce a
+ * document that looks final but isn't — every other status (APPROVED,
+ * PAID, CANCELLED) already has a number and unchanging content, so export
+ * stays allowed for all of them.
+ */
+export function canExportDocumentPdf(status: DocumentStatus): boolean {
+  return status !== 'DRAFT'
+}

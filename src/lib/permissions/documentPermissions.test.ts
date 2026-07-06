@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from './documentPermissions'
-import type { DocumentType } from '@/types/document'
+import { canApproveDocument, canEditDocument, canExportDocumentPdf, canMarkDocumentPaid } from './documentPermissions'
+import type { DocumentStatus, DocumentType } from '@/types/document'
 import type { MemberRole } from '@/types/member'
 
 describe('canApproveDocument', () => {
@@ -78,4 +78,17 @@ describe('canMarkDocumentPaid', () => {
   it('does not allow a user with no membership in the company', () => {
     expect(canMarkDocumentPaid('RECEIPT', 'APPROVED', null)).toBe(false)
   })
+})
+
+describe('canExportDocumentPdf', () => {
+  it('does not allow exporting a DRAFT (no document number yet, content can still change)', () => {
+    expect(canExportDocumentPdf('DRAFT')).toBe(false)
+  })
+
+  it.each<DocumentStatus>(['APPROVED', 'PAID', 'CANCELLED'])(
+    'allows exporting a %s document (already has a document number)',
+    (status) => {
+      expect(canExportDocumentPdf(status)).toBe(true)
+    },
+  )
 })
