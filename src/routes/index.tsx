@@ -19,6 +19,7 @@ import { LazyDashboardPage } from '@/features/dashboard/LazyDashboardPage'
 import { DocumentsPage } from '@/features/documents/DocumentsPage'
 import { DocumentFormPage } from '@/features/documents/DocumentFormPage'
 import { DocumentDetailPage } from '@/features/documents/DocumentDetailPage'
+import { DocumentPrintPage } from '@/features/documents/DocumentPrintPage'
 import { CustomersPage } from '@/features/customers/CustomersPage'
 import { CompanySettingsPage } from '@/features/company/CompanySettingsPage'
 import { MembersSettingsPage } from '@/features/members/MembersSettingsPage'
@@ -103,6 +104,12 @@ export const router = createBrowserRouter(
             {
               element: <RequireCompany />,
               children: [
+                // Print/export view — deliberately outside AppShell (no
+                // sidebar/topbar/toast) so "printing" this route already
+                // captures just the document sheet, nothing else. Renders
+                // the exact same <DocumentPreview> as the detail page — see
+                // DocumentPrintPage.tsx.
+                { path: '/documents/:id/print', element: <DocumentPrintPage /> },
                 {
                   element: <AppShell />,
                   children: [

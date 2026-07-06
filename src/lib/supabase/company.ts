@@ -4,9 +4,11 @@ import {
   getMockCompanyForUser,
   updateMockCompany,
   updateMockCompanyLogo,
+  updateMockCompanyLogoLayout,
   updateMockCompanyTemplate,
 } from '@/lib/mock/mockCompany'
 import { logError } from '@/lib/utils/debugLog'
+import { clampLogoSize, type LogoPosition } from '@/types/logoLayout'
 import type { CompanyRow, DocumentTemplateEnum } from '@/types/database'
 import type { Company } from '@/types/company'
 import type { MemberRole } from '@/types/member'
@@ -27,6 +29,8 @@ export function mapCompanyRow(row: CompanyRow): Company {
     logoUrl: row.logo_url,
     contactName: row.contact_name,
     documentTemplate: row.document_template,
+    logoSize: row.logo_size,
+    logoPosition: row.logo_position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -246,6 +250,41 @@ export async function updateCompanyTemplate(
     return mapCompanyRow(data)
   } catch (error) {
     logError('company.updateCompanyTemplate', error, { companyId, template })
+    throw error
+  }
+}
+
+export interface CompanyLogoLayoutInput {
+  logoSize: number
+  logoPosition: LogoPosition
+}
+
+/**
+ * Sets the company's logo size/position for document headers (Pass 2.1) —
+ * a separate save action from both the main info form (updateCompany) and
+ * the logo file itself (uploadCompanyLogo/removeCompanyLogo), same
+ * pattern as updateCompanyTemplate above. logoSize is clamped client-side
+ * before it ever reaches the request; the database's own check constraint
+ * (20260719120000_company_logo_layout.sql) is the final backstop.
+ */
+export async function updateCompanyLogoLayout(
+  companyId: string,
+  input: CompanyLogoLayoutInput,
+): Promise<Company> {
+  const logoSize = clampLogoSize(input.logoSize)
+  if (isMockMode) return updateMockCompanyLogoLayout(companyId, { logoSize, logoPosition: input.logoPosition })
+
+  try {
+    const { data, error } = await requireSupabase()
+      .from('companies')
+      .update({ logo_size: logoSize, logo_position: input.logoPosition })
+      .eq('id', companyId)
+      .select()
+      .single()
+    if (error) throw error
+    return mapCompanyRow(data)
+  } catch (error) {
+    logError('company.updateCompanyLogoLayout', error, { companyId, input })
     throw error
   }
 }

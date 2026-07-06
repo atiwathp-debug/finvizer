@@ -26,6 +26,7 @@ import {
 } from '@/lib/supabase/documents'
 import { listAuditLogsForEntity, logAuditEvent } from '@/lib/supabase/auditLog'
 import { logError } from '@/lib/utils/debugLog'
+import { buildAppUrl } from '@/lib/utils/url'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from '@/lib/permissions/documentPermissions'
@@ -57,7 +58,6 @@ export function DocumentDetailPage() {
   const [timelineLogs, setTimelineLogs] = useState<AuditLogRecord[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isActing, setIsActing] = useState(false)
-  const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -256,56 +256,14 @@ export function DocumentDetailPage() {
     }
   }
 
-  const handleExportPdf = async () => {
-    if (!document || !company || !user) return
-    setIsExportingPdf(true)
-    try {
-      // Dynamically imported — @react-pdf/renderer is heavy (~1.4MB), so
-      // it's split into its own chunk fetched only when a user actually
-      // exports a PDF, instead of bloating everyone's initial page load.
-      const { documentPdfFileName, generateDocumentPdf } = await import('@/lib/pdf/generateDocumentPdf')
-      const customer = customers?.find((c) => c.id === document.customerId) ?? null
-      const blob = await generateDocumentPdf({ company, customer, document, signatureSlots, installments })
-      const url = URL.createObjectURL(blob)
-      // window.document, not the `document` state variable shadowing it above.
-      const link = window.document.createElement('a')
-      link.href = url
-      link.download = documentPdfFileName(document, documentTypeLabels[document.documentType])
-      link.click()
-      URL.revokeObjectURL(url)
-      // No RPC involved in exporting a PDF (it's a pure client-side render),
-      // so unlike approve/paid/cancel/revision/conversion, the page itself
-      // logs this — same reasoning as CREATE_DOCUMENT_DRAFT.
-      void logAuditEvent({
-        companyId: company.id,
-        actorId: user.id,
-        action: 'EXPORT_DOCUMENT_PDF',
-        entityType: 'document',
-        entityId: document.id,
-        metadata: { documentNumber: document.documentNumber },
-      })
-      setTimelineLogs((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          companyId: company.id,
-          actorId: user.id,
-          action: 'EXPORT_DOCUMENT_PDF',
-          entityType: 'document',
-          entityId: document.id,
-          metadata: { documentNumber: document.documentNumber },
-          createdAt: new Date().toISOString(),
-        },
-      ])
-    } catch (error) {
-      toast({
-        title: 'ส่งออก PDF ไม่สำเร็จ',
-        description: error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
-        tone: 'error',
-      })
-    } finally {
-      setIsExportingPdf(false)
-    }
+  // "Export PDF" opens the print route in a new tab — it renders the exact
+  // same <DocumentPreview> this page shows and triggers the browser's own
+  // print/"Save as PDF" dialog there (see DocumentPrintPage.tsx), instead
+  // of a separate react-pdf render that could drift from this preview.
+  // That page logs its own EXPORT_DOCUMENT_PDF audit event once loaded.
+  const handleExportPdf = () => {
+    if (!document) return
+    window.open(buildAppUrl(`documents/${document.id}/print`), '_blank', 'noopener,noreferrer')
   }
 
   if (!company) return null
@@ -353,7 +311,7 @@ export function DocumentDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <StatusBadge status={document.status} />
-            <Button variant="secondary" onClick={() => void handleExportPdf()} isLoading={isExportingPdf}>
+            <Button variant="secondary" onClick={handleExportPdf}>
               <Download className="size-4" aria-hidden="true" />
               ส่งออก PDF
             </Button>
@@ -447,7 +405,11 @@ export function DocumentDetailPage() {
       <DocumentPreview
         companyName={company.nameTh}
         companyAddress={company.address}
+        companyTaxId={company.taxId}
+        companyPhone={company.phone}
         logoUrl={company.logoUrl}
+        logoSize={company.logoSize}
+        logoPosition={company.logoPosition}
         template={company.documentTemplate}
         documentTypeLabel={documentTypeLabels[document.documentType]}
         documentNumber={document.documentNumber}

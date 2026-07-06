@@ -430,6 +430,18 @@ the Supabase Dashboard → Storage and confirm a bucket named
 is just a visual confirmation, no action needed unless it's missing (in
 which case re-run the migration file).
 
+### Production readiness pass 2.1 migration (configurable logo size/position)
+
+Apply after everything above. Purely additive (two new nullable-with-default
+columns on `companies`), safe to re-run — it does not touch
+`mark_document_paid`, `create_document_conversion`, `approve_document`,
+`cancel_document`, or any dashboard/report logic.
+
+| File | What it does |
+| --- | --- |
+| `20260719120000_company_logo_layout.sql` | Adds `companies.logo_size` (integer, default `48`, `check` constrained to `24`–`160`) and `companies.logo_position` (text, default `'left_of_company_name'`, `check` constrained to `left_of_company_name` / `header_left` / `header_center` / `header_right` / `hidden`). Lets each company configure where the logo sits in document headers and how large it renders, applied consistently across the document preview, full template-preview dialog, and PDF export. Uses `add column if not exists ... check (...)`, which only applies the inline check when the column is actually being added — re-running this file on a database that already has these columns is a no-op. |
+| `20260720120000_logo_layout_qa_fixes.sql` | QA fix: widens `companies.logo_size`'s `check` from `24`–`160` to `24`–`200`, and adds `'centered_logo_above_company'` to `companies.logo_position`'s allowed values (a header layout where the logo sits centered above the company name/address/tax ID/phone, all centered, with the document type/number rendered separately below so nothing overlaps). Repair-only: drops each check constraint by its default-generated name before recreating it with the widened range/value list, so re-running this file is a no-op once applied. |
+
 Once migrations are applied, regenerate accurate TypeScript types (this repo
 currently ships a hand-written equivalent at `src/types/database.ts` that
 matches the migrations exactly):

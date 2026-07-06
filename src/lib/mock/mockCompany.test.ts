@@ -4,9 +4,11 @@ import {
   getMockCompanyForUser,
   updateMockCompany,
   updateMockCompanyLogo,
+  updateMockCompanyLogoLayout,
   updateMockCompanyTemplate,
   type MockCompanyOnboardingInput,
 } from './mockCompany'
+import { LOGO_SIZE_DEFAULT } from '@/types/logoLayout'
 
 beforeEach(() => {
   localStorage.clear()
@@ -152,5 +154,47 @@ describe('updateMockCompanyLogo', () => {
 
   it('throws for an unknown company id', () => {
     expect(() => updateMockCompanyLogo('missing-id', 'data:image/png;base64,x')).toThrow('ไม่พบบริษัท')
+  })
+})
+
+describe('updateMockCompanyLogoLayout', () => {
+  it('starts with the default size and position', () => {
+    const company = createMockCompany('user-1', input)
+    expect(company.logoSize).toBe(LOGO_SIZE_DEFAULT)
+    expect(company.logoPosition).toBe('left_of_company_name')
+  })
+
+  it('sets size and position and bumps updatedAt', async () => {
+    const company = createMockCompany('user-1', input)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    const updated = updateMockCompanyLogoLayout(company.id, {
+      logoSize: 96,
+      logoPosition: 'header_center',
+    })
+
+    expect(updated.logoSize).toBe(96)
+    expect(updated.logoPosition).toBe('header_center')
+    expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(
+      new Date(company.updatedAt).getTime(),
+    )
+    expect(getMockCompanyForUser('user-1')?.company.logoPosition).toBe('header_center')
+  })
+
+  it('clamps an out-of-range size', () => {
+    const company = createMockCompany('user-1', input)
+
+    const updated = updateMockCompanyLogoLayout(company.id, {
+      logoSize: 999,
+      logoPosition: 'header_right',
+    })
+
+    expect(updated.logoSize).toBe(200)
+  })
+
+  it('throws for an unknown company id', () => {
+    expect(() =>
+      updateMockCompanyLogoLayout('missing-id', { logoSize: 48, logoPosition: 'hidden' }),
+    ).toThrow('ไม่พบบริษัท')
   })
 })

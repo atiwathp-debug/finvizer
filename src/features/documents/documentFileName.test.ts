@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { documentPdfFileName } from './generateDocumentPdf'
+import { documentPdfFileName } from './documentFileName'
 import type { DocumentRecord } from '@/types/document'
 
-/**
- * generateDocumentPdf() itself renders a real PDF via react-pdf, which
- * loads its Thai font through a Vite-processed asset URL — that only
- * resolves over HTTP inside a real browser/dev server, not vitest's
- * plain Node environment (no server here to serve it). Actual PDF
- * generation is verified live in the browser preview instead, matching
- * this project's existing convention of verifying browser-only behavior
- * there rather than through a DOM/rendering test harness. What's left
- * here is the pure, environment-independent piece: the filename logic.
- */
 const document: DocumentRecord = {
   id: 'document-1',
   companyId: 'company-1',

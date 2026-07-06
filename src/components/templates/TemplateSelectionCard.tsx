@@ -3,6 +3,7 @@ import { DocumentTemplatePreview } from '@/components/templates/DocumentTemplate
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils/cn'
 import type { DocumentTemplateMeta } from '@/types/documentTemplate'
+import type { LogoPosition } from '@/types/logoLayout'
 
 interface TemplateSelectionCardProps {
   template: DocumentTemplateMeta
@@ -10,6 +11,10 @@ interface TemplateSelectionCardProps {
   isSaving?: boolean
   /** True while a non-owner is viewing, or another card's save is in flight. */
   disabled?: boolean
+  /** The signed-in company's real logo/layout settings, so this preview reflects what documents will actually look like. */
+  logoUrl?: string | null
+  logoSize?: number
+  logoPosition?: LogoPosition
   onPreview: () => void
   onSelect: () => void
 }
@@ -19,6 +24,9 @@ export function TemplateSelectionCard({
   isSelected,
   isSaving = false,
   disabled = false,
+  logoUrl,
+  logoSize,
+  logoPosition,
   onPreview,
   onSelect,
 }: TemplateSelectionCardProps) {
@@ -29,7 +37,13 @@ export function TemplateSelectionCard({
         isSelected ? 'border-brand-500 ring-2 ring-brand-100' : 'border-line',
       )}
     >
-      <DocumentTemplatePreview variant={template.id} density="compact" />
+      <DocumentTemplatePreview
+        variant={template.id}
+        density="compact"
+        logoUrl={logoUrl}
+        logoSize={logoSize}
+        logoPosition={logoPosition}
+      />
 
       <div className="mt-4 flex items-start justify-between gap-2">
         <div>

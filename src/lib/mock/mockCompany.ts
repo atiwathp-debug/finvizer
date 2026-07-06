@@ -1,4 +1,5 @@
 import { addMockMember, getMockMembershipForUser } from '@/lib/mock/mockMembers'
+import { LOGO_SIZE_DEFAULT, clampLogoSize, type LogoPosition } from '@/types/logoLayout'
 import type { Company } from '@/types/company'
 import type { DocumentTemplateEnum } from '@/types/database'
 import type { MemberRole } from '@/types/member'
@@ -73,6 +74,8 @@ export function createMockCompany(userId: string, input: MockCompanyOnboardingIn
     logoUrl: null,
     contactName: input.contactName || null,
     documentTemplate: null,
+    logoSize: LOGO_SIZE_DEFAULT,
+    logoPosition: 'left_of_company_name',
     createdAt: now,
     updatedAt: now,
   }
@@ -155,6 +158,30 @@ export function updateMockCompanyTemplate(
   const updated: Company = {
     ...companies[index],
     documentTemplate: template,
+    updatedAt: new Date().toISOString(),
+  }
+  companies[index] = updated
+  writeCompanies(companies)
+  return updated
+}
+
+export interface MockCompanyLogoLayoutInput {
+  logoSize: number
+  logoPosition: LogoPosition
+}
+
+/** Used by lib/supabase/company.ts's updateCompanyLogoLayout — logoSize is re-clamped here too, so a direct call (e.g. from a test) stays safe. */
+export function updateMockCompanyLogoLayout(companyId: string, input: MockCompanyLogoLayoutInput): Company {
+  const companies = readCompanies()
+  const index = companies.findIndex((c) => c.id === companyId)
+  if (index === -1) {
+    throw new Error('ไม่พบบริษัท')
+  }
+
+  const updated: Company = {
+    ...companies[index],
+    logoSize: clampLogoSize(input.logoSize),
+    logoPosition: input.logoPosition,
     updatedAt: new Date().toISOString(),
   }
   companies[index] = updated

@@ -67,6 +67,9 @@ export function TemplateSettingsPage() {
             isSelected={template.id === company.documentTemplate}
             isSaving={savingId === template.id}
             disabled={!isOwner || (savingId !== null && savingId !== template.id)}
+            logoUrl={company.logoUrl}
+            logoSize={company.logoSize}
+            logoPosition={company.logoPosition}
             onPreview={() => setPreviewTemplate(template)}
             onSelect={() => void handleSelect(template.id)}
           />
@@ -79,6 +82,9 @@ export function TemplateSettingsPage() {
         isSelected={previewTemplate?.id === company.documentTemplate}
         isSaving={previewTemplate !== null && savingId === previewTemplate.id}
         disabled={!isOwner}
+        logoUrl={company.logoUrl}
+        logoSize={company.logoSize}
+        logoPosition={company.logoPosition}
         onSelect={() => previewTemplate && void handleSelect(previewTemplate.id)}
       />
     </div>

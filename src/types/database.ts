@@ -11,6 +11,17 @@ export type MemberRole = 'OWNER' | 'ADMIN' | 'ACCOUNTANT' | 'EDITOR' | 'VIEWER'
 export type MemberStatus = 'ACTIVE' | 'INVITED' | 'DISABLED'
 export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'CANCELLED'
 export type DocumentTemplateEnum = 'EXECUTIVE_CLASSIC' | 'MODERN_ACCENT' | 'MINIMAL_PRINT'
+// Pass 2.1 — see supabase/migrations/20260719120000_company_logo_layout.sql
+// and src/types/logoLayout.ts (the app-level equivalent, with clamp/slot
+// helpers). Declared separately here, same reasoning as every other
+// hand-mirrored enum-like text column in this file.
+export type LogoPositionCode =
+  | 'left_of_company_name'
+  | 'header_left'
+  | 'header_center'
+  | 'header_right'
+  | 'centered_logo_above_company'
+  | 'hidden'
 export type ResetPolicy = 'DAILY' | 'MONTHLY' | 'YEARLY' | 'NEVER'
 export type DocumentTypeCode =
   | 'RFQ'
@@ -53,6 +64,10 @@ export type CompanyRow = {
   logo_url: string | null
   contact_name: string | null
   document_template: DocumentTemplateEnum | null
+  // Pass 2.1 additions — see
+  // supabase/migrations/20260719120000_company_logo_layout.sql.
+  logo_size: number
+  logo_position: LogoPositionCode
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -143,6 +158,8 @@ export interface Database {
           logo_url?: string | null
           contact_name?: string | null
           document_template?: DocumentTemplateEnum | null
+          logo_size?: number
+          logo_position?: LogoPositionCode
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -163,6 +180,8 @@ export interface Database {
           logo_url?: string | null
           contact_name?: string | null
           document_template?: DocumentTemplateEnum | null
+          logo_size?: number
+          logo_position?: LogoPositionCode
           created_at?: string
           updated_at?: string
           deleted_at?: string | null

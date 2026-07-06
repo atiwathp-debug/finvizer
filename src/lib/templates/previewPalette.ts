@@ -14,12 +14,12 @@ export interface TemplatePalette {
 }
 
 /**
- * Shared between the on-screen preview (DocumentPreview.tsx) and the PDF
- * export (DocumentPdf.tsx) so both always use the exact same accent color
- * for a given template. As of production readiness pass 2's redesign, the
- * 3 templates are differentiated primarily by *layout structure* (each
- * has its own render path in both files) rather than by color alone — this
- * palette only supplies the one brand color each layout needs.
+ * Used by the on-screen preview (DocumentPreview.tsx), which is also what
+ * gets printed/exported to PDF, so there's exactly one accent color for a
+ * given template. As of production readiness pass 2's redesign, the 3
+ * templates are differentiated primarily by *layout structure* (each has
+ * its own render path) rather than by color alone — this palette only
+ * supplies the one brand color each layout needs.
  */
 export const documentTemplatePalette: Record<DocumentTemplateEnum, TemplatePalette> = {
   // Formal Thai business style — dark navy box fill, echoes traditional

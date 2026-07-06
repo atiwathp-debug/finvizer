@@ -51,9 +51,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // woff added alongside woff2 in Phase 5A — the PDF export Thai
-        // font is shipped as WOFF (not WOFF2), see src/lib/pdf/fonts.ts.
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
     }),
   ],

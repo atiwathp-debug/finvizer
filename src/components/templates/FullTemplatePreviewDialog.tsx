@@ -2,6 +2,7 @@ import { DocumentTemplatePreview } from '@/components/templates/DocumentTemplate
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/Dialog'
 import { Button } from '@/components/ui/Button'
 import type { DocumentTemplateMeta } from '@/types/documentTemplate'
+import type { LogoPosition } from '@/types/logoLayout'
 
 interface FullTemplatePreviewDialogProps {
   /** null closes the dialog. */
@@ -10,6 +11,10 @@ interface FullTemplatePreviewDialogProps {
   isSelected: boolean
   isSaving?: boolean
   disabled?: boolean
+  /** The signed-in company's real logo/layout settings, so this preview reflects what documents will actually look like. */
+  logoUrl?: string | null
+  logoSize?: number
+  logoPosition?: LogoPosition
   onSelect: () => void
 }
 
@@ -19,6 +24,9 @@ export function FullTemplatePreviewDialog({
   isSelected,
   isSaving = false,
   disabled = false,
+  logoUrl,
+  logoSize,
+  logoPosition,
   onSelect,
 }: FullTemplatePreviewDialogProps) {
   return (
@@ -29,7 +37,13 @@ export function FullTemplatePreviewDialog({
             <DialogTitle>ตัวอย่างเต็ม — {template.name}</DialogTitle>
             <DialogDescription>{template.description}</DialogDescription>
             <div className="mt-4 max-h-[65vh] overflow-y-auto rounded-xl border border-line bg-surface p-4">
-              <DocumentTemplatePreview variant={template.id} density="full" />
+              <DocumentTemplatePreview
+                variant={template.id}
+                density="full"
+                logoUrl={logoUrl}
+                logoSize={logoSize}
+                logoPosition={logoPosition}
+              />
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => onOpenChange(false)}>

@@ -526,53 +526,80 @@ policy-by-policy breakdown and a manual SQL verification recipe.
       always fails — only `create_document_revision()` can produce a
       revision row — see `docs/rls-policy-notes.md` step 12
 
-## PDF Export (Phase 5A) — testable now
+## PDF Export (print-based, replaces Phase 5A's react-pdf export) — testable now
 
 > Requires at least one document (Draft or Approved, Phase 4A/4B) to
 > export. Switch the company's template at `/settings/templates` to test
-> both layouts against the same document.
+> all three layouts against the same document.
+>
+> Export PDF no longer uses a separate PDF-rendering library. "ส่งออก PDF"
+> opens `/documents/:id/print` in a new tab, which renders the exact same
+> `<DocumentPreview>` component shown on the detail page and then calls the
+> browser's own print dialog (`window.print()`) — "Save as PDF" in that
+> dialog is what produces the file. There is only one layout
+> implementation now, so the exported/printed output cannot drift from the
+> on-screen preview.
 
 - [ ] "ส่งออก PDF" is visible on every document's `/documents/:id` page,
       regardless of status (Draft/Approved/Paid/Cancelled) or whether it's
       a revision — exporting a copy is a read action, not gated behind the
       edit/approve permissions like the other buttons on this page
-- [ ] Clicking it downloads a `.pdf` file directly to the browser's
-      downloads folder — no network request is made (check the Network
-      tab: nothing fires when exporting), confirming nothing is uploaded
-      to Supabase Storage or anywhere else
-- [ ] The downloaded filename is `{ประเภทเอกสาร}-{เลขที่เอกสาร}.pdf`, or
-      `{ประเภทเอกสาร}-DRAFT.pdf` for a Draft with no official number yet
-- [ ] Opening the PDF shows: company name/address/tax id, customer
-      name/address/tax id, document type, document number (or "จะออกเลข
-      เมื่ออนุมัติ" for a Draft), line items with quantity/unit/unit
+- [ ] Clicking it opens a new tab at `/documents/:id/print` showing just
+      the document sheet (no sidebar/topbar/toast — this route renders
+      outside the app shell), then the browser's print dialog opens
+      automatically after a brief delay
+- [ ] In the print dialog, the destination can be set to "Save as PDF"
+      (or "Microsoft Print to PDF" etc.) — the suggested filename is
+      `{ประเภทเอกสาร}-{เลขที่เอกสาร}.pdf`, or `{ประเภทเอกสาร}-DRAFT.pdf`
+      for a Draft with no official number yet (from the tab's title)
+- [ ] The print preview / saved PDF shows: company name/address/tax id
+      (each name displaying in full, no clipping), customer name/address
+      (also displaying in full), document type, document number (or "จะ
+      ออกเลขเมื่ออนุมัติ" for a Draft), line items with quantity/unit/unit
       price/amount, VAT line (hidden for NON_VAT, labeled correctly for
       VAT_EXCLUDED vs VAT_INCLUDED), grand total, note, the due date
-      (payment term), and a two-box signature area at the bottom
-- [ ] With the company set to **Executive Classic**
-      (`/settings/templates`), the PDF header is dark slate with white
-      text; with **Modern Accent**, the header is indigo with white text
-      and the grand-total box uses an emerald tint — the same color
-      language as the on-screen template preview cards
+      (payment term), and the signature area at the bottom
+- [ ] The printed page is A4 portrait with proper margins, white
+      background, and no clipped or overflowing text/tables — matches
+      `@media print { @page { size: A4 portrait; margin: 12mm } }` in
+      `src/styles/index.css`
+- [ ] With the company set to **Executive Classic** (`/settings/templates`),
+      the header is dark slate with white text; with **Modern Accent**, the
+      header is indigo/orange accented; with **Minimal Print**, the layout
+      is plain black lines with no color — same as the on-screen preview,
+      because it's the same component
+- [ ] The logo renders at the configured position/size
+      (`left_of_company_name` / `header_left` / `header_center` /
+      `header_right` / `centered_logo_above_company` / `hidden`) exactly as
+      it does in the on-screen detail-page preview
+- [ ] The signature area renders each configured slot (Settings → ลายเซ็น
+      เอกสาร) as: a line, then `(________________________)`, then the
+      label — all centered — including any custom labels, not just the
+      ผู้ซื้อ/ผู้ขาย defaults
 - [ ] All Thai text (company name, customer name, line item descriptions,
       notes, labels) renders with correct glyphs — no tofu boxes or
       missing characters — and numbers/currency symbols (฿) render
       correctly alongside Thai text on the same line
-- [ ] On an approved **revision**, the PDF shows a "Revision R1" (or R2,
-      etc.) line near the document number, and the document number itself
-      already includes the `-R1`/`-R2` suffix
-- [ ] The grand total, subtotal, discount, and VAT amounts shown in the
-      PDF match exactly what's shown in the on-screen preview for the same
-      document (same `formatTHB` output, same figures)
-- [ ] Exporting a Draft with zero line items still produces a valid PDF
-      (shows "ยังไม่มีรายการ" in the items area) instead of erroring
+- [ ] On an approved **revision**, the printed page shows a "Revision R1"
+      (or R2, etc.) line near the document number, and the document number
+      itself already includes the `-R1`/`-R2` suffix
+- [ ] The grand total, subtotal, discount, and VAT amounts on the printed
+      page match exactly what's shown on the detail page's preview for the
+      same document (same `formatTHB` output, same figures — trivially
+      true now since it's the same component, but confirm no stale state)
+- [ ] Exporting a Draft with zero line items still renders correctly (shows
+      "ยังไม่มีรายการ" in the items area) instead of erroring
 - [ ] A customer name/note containing unusual characters (e.g. `<script>`
-      tags, stray control characters) renders as inert plain text in the
-      PDF — no broken layout, no executed markup
-- [ ] Mock Mode: export works with no Supabase project connected — the PDF
-      is generated entirely from already-loaded local state
-- [ ] `[ ]` (real Supabase only) Same export flow works unchanged against
-      a real document loaded from Supabase — no separate code path exists
-      for Mock Mode vs real mode in the PDF generator itself
+      tags, stray control characters) renders as inert plain text — no
+      broken layout, no executed markup
+- [ ] Mock Mode: the print route works with no Supabase project connected —
+      rendered entirely from already-loaded local state
+- [ ] `[ ]` (real Supabase only) Same print/export flow works unchanged
+      against a real document loaded from Supabase — no separate code path
+      exists for Mock Mode vs real mode
+- [ ] Check `audit_logs` (or the on-screen timeline after reloading the
+      detail page): an `EXPORT_DOCUMENT_PDF` event is recorded once per
+      print-page load, not once per print-dialog interaction
 
 ## Document Conversion & Activity Timeline (Phase 6A) — testable now
 

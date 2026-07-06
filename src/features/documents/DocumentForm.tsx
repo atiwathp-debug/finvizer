@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { documentFormSchema, type DocumentFormValues } from '@/lib/validations/document'
@@ -9,6 +10,7 @@ import { DocumentPreview } from '@/features/documents/DocumentPreview'
 import { FormField } from '@/components/shared/FormField'
 import { PhaseNotice } from '@/components/shared/PhaseNotice'
 import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { documentTypeLabels, vatModeLabels } from '@/types/document'
@@ -80,6 +82,14 @@ export function DocumentForm({
 
   const selectedCustomer = customers.find((c) => c.id === watched.customerId)
 
+  // Reuses the existing `note` field rather than adding a new column --
+  // this toggle just controls whether the typed note is kept or cleared
+  // on save, so an existing document's note-shown/hidden state round-trips
+  // correctly (toFormValues seeds initialValues.note, so a document saved
+  // with a note starts with the checkbox checked; one without starts
+  // unchecked -- matching today's behavior of "no note = nothing renders").
+  const [showNote, setShowNote] = useState(() => Boolean(initialValues?.note))
+
   const handleValidatedSave = handleSubmit((values) => {
     if (values.installmentPlan === 'INSTALLMENT') {
       const sumCheck = validateInstallmentSum(values.installments, totals.grandTotal)
@@ -91,7 +101,7 @@ export function DocumentForm({
         return
       }
     }
-    onSave(values)
+    onSave({ ...values, note: showNote ? values.note : '' })
   })
 
   return (
@@ -144,9 +154,27 @@ export function DocumentForm({
               </FormField>
 
               <div className="sm:col-span-2">
-                <FormField label="หมายเหตุ" htmlFor="document-note" error={errors.note?.message}>
-                  <Input id="document-note" placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)" {...register('note')} />
-                </FormField>
+                <label className="flex items-center gap-2 text-sm font-medium text-ink">
+                  <input
+                    type="checkbox"
+                    checked={showNote}
+                    onChange={(event) => setShowNote(event.target.checked)}
+                    className="h-4 w-4 rounded border-line"
+                  />
+                  แสดงหมายเหตุในเอกสาร
+                </label>
+                {showNote && (
+                  <div className="mt-2">
+                    <FormField label="หมายเหตุ" htmlFor="document-note" error={errors.note?.message}>
+                      <Textarea
+                        id="document-note"
+                        rows={4}
+                        placeholder="หมายเหตุเพิ่มเติม (ถ้ามี) — กด Enter เพื่อขึ้นบรรทัดใหม่"
+                        {...register('note')}
+                      />
+                    </FormField>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -176,7 +204,11 @@ export function DocumentForm({
             <DocumentPreview
               companyName={company.nameTh}
               companyAddress={company.address}
+              companyTaxId={company.taxId}
+              companyPhone={company.phone}
               logoUrl={company.logoUrl}
+              logoSize={company.logoSize}
+              logoPosition={company.logoPosition}
               template={company.documentTemplate}
               documentTypeLabel={documentTypeLabels[documentType]}
               customerName={selectedCustomer?.name}
@@ -192,7 +224,7 @@ export function DocumentForm({
               }))}
               totals={totals}
               vatMode={vatMode}
-              note={watched.note}
+              note={showNote ? watched.note : ''}
               signatureSlots={signatureSlots}
               installmentPlan={watched.installmentPlan}
               installments={watched.installments}

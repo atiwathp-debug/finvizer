@@ -1,10 +1,53 @@
+import type { CSSProperties } from 'react'
 import { calculateInstallmentAmount, type DocumentTotalsResult, type InstallmentAmountType } from '@/lib/calculations/documentTotals'
 import { formatTHB, formatThaiDate } from '@/lib/utils/currency'
+import { thaiBahtText } from '@/lib/utils/thaiBahtText'
 import { getTemplatePalette } from '@/lib/templates/previewPalette'
+import { DEFAULT_DOCUMENT_TEMPLATE_TEXT } from '@/lib/templates/documentTemplateText'
 import { withSignatureFallback } from '@/lib/signatures/defaultSignatureSlots'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { LOGO_SIZE_DEFAULT, clampLogoSize, isCenteredCompanyHeader, shouldRenderLogoAtSlot, type LogoPosition } from '@/types/logoLayout'
 import type { VatMode } from '@/types/document'
 import type { DocumentTemplateEnum } from '@/types/database'
 import type { SignatureSlot } from '@/types/signature'
+
+const T = DEFAULT_DOCUMENT_TEMPLATE_TEXT
+
+/**
+ * The one place all 3 templates render a signature slot: a blank space to
+ * physically sign, the signature line itself, the "(________________________)"
+ * printed-name placeholder, then the role label -- always in that order,
+ * always centered, never beside/outside the slot's own box. Previously
+ * each template hand-rolled this and drifted (Modern Accent was missing
+ * the blank signing space above its line); centralizing it here makes
+ * that impossible to reintroduce.
+ */
+function SignatureBlock({
+  slot,
+  boxClassName,
+  lineClassName,
+  lineStyle,
+  placeholderClassName,
+  labelClassName,
+}: {
+  slot: SignatureSlot
+  boxClassName: string
+  lineClassName: string
+  lineStyle?: CSSProperties
+  placeholderClassName: string
+  labelClassName: string
+}) {
+  return (
+    <div className={boxClassName}>
+      <div className="flex flex-col items-center">
+        <div className="h-10" />
+        <div className={lineClassName} style={lineStyle} />
+        <p className={placeholderClassName}>(________________________)</p>
+        <p className={labelClassName}>{slot.label}</p>
+      </div>
+    </div>
+  )
+}
 
 interface PreviewItem {
   description: string
@@ -25,9 +68,16 @@ interface PreviewInstallment {
 interface DocumentPreviewProps {
   companyName: string
   companyAddress?: string | null
+  /** Only rendered for the centered_logo_above_company layout, which shows these as separate centered lines below the logo — every other layout keeps its existing combined tax-ID/phone line untouched. */
+  companyTaxId?: string | null
+  companyPhone?: string | null
   /** Public URL of the company's logo (Settings > ข้อมูลบริษัท) — renders next to the company name when present, nothing when absent. */
   logoUrl?: string | null
-  /** Defaults to EXECUTIVE_CLASSIC, matching the PDF generator's own fallback (src/lib/pdf/generateDocumentPdf.tsx). */
+  /** Side length (px) of the logo's bounding box — see src/types/logoLayout.ts. Defaults to LOGO_SIZE_DEFAULT. */
+  logoSize?: number
+  /** Which header slot the logo renders at (Pass 2.1) — see src/types/logoLayout.ts. Defaults to left_of_company_name (today's placement). */
+  logoPosition?: LogoPosition
+  /** Defaults to EXECUTIVE_CLASSIC. */
   template?: DocumentTemplateEnum | null
   documentTypeLabel: string
   /** Null/omitted while DRAFT — shows "จะออกเลขเมื่ออนุมัติ" instead (Phase 4B: real number once APPROVED/PAID/CANCELLED). */
@@ -51,7 +101,11 @@ interface DocumentPreviewProps {
 interface PreparedPreviewData {
   companyName: string
   companyAddress?: string | null
+  companyTaxId?: string | null
+  companyPhone?: string | null
   logoUrl?: string | null
+  logoSize: number
+  logoPosition: LogoPosition
   documentTypeLabel: string
   documentNumber?: string | null
   customerName?: string | null
@@ -82,19 +136,59 @@ function installmentAmount(installment: PreviewInstallment, grandTotal: number):
  */
 function FormalTemplate(data: PreparedPreviewData) {
   const { accent, accentText } = data
+  // Both left/right slots always reserve this same width, whichever one
+  // (if either) actually holds the logo — so the centered company name
+  // stays perfectly centered regardless of logoPosition or logoSize.
+  const logoBoxPx = clampLogoSize(data.logoSize)
+  const isStacked = isCenteredCompanyHeader(data.logoPosition)
+  const isLeftAligned = shouldRenderLogoAtSlot(data.logoPosition, 'left')
   return (
     <div className="border-2 border-slate-800 bg-white text-sm">
       <div className="border-b-2 border-slate-800 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex size-14 shrink-0 items-center justify-center">
-            {data.logoUrl && <img src={data.logoUrl} alt="" className="max-h-14 max-w-14 object-contain" />}
+        {shouldRenderLogoAtSlot(data.logoPosition, 'center') && (
+          <div className="mb-2 flex justify-center">
+            <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
           </div>
-          <div className="flex-1 text-center">
-            <p className="text-lg font-bold text-slate-900">{data.companyName}</p>
-            {data.companyAddress && <p className="mt-0.5 text-xs text-slate-600">{data.companyAddress}</p>}
+        )}
+        {isStacked ? (
+          <div className="flex flex-col items-center gap-0.5 text-center">
+            <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+            <p className="mt-1 text-lg font-bold text-slate-900">{data.companyName}</p>
+            {data.companyAddress && <p className="text-xs text-slate-600">{data.companyAddress}</p>}
+            {data.companyTaxId && <p className="text-xs text-slate-600">เลขประจำตัวผู้เสียภาษี {data.companyTaxId}</p>}
+            {data.companyPhone && <p className="text-xs text-slate-600">โทร {data.companyPhone}</p>}
           </div>
-          <div className="size-14 shrink-0" aria-hidden="true" />
-        </div>
+        ) : isLeftAligned ? (
+          <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center justify-center" style={{ width: logoBoxPx, height: logoBoxPx }}>
+              <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+            </div>
+            <div>
+              <p className="text-lg font-bold text-slate-900">{data.companyName}</p>
+              {data.companyAddress && <p className="mt-0.5 text-xs text-slate-600">{data.companyAddress}</p>}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start justify-between gap-3">
+            <div
+              className="flex shrink-0 items-center justify-center"
+              style={{ width: logoBoxPx, height: logoBoxPx }}
+              aria-hidden="true"
+            />
+            <div className="flex-1 text-center">
+              <p className="text-lg font-bold text-slate-900">{data.companyName}</p>
+              {data.companyAddress && <p className="mt-0.5 text-xs text-slate-600">{data.companyAddress}</p>}
+            </div>
+            <div
+              className="flex shrink-0 items-center justify-center"
+              style={{ width: logoBoxPx, height: logoBoxPx }}
+            >
+              {shouldRenderLogoAtSlot(data.logoPosition, 'right') && (
+                <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+              )}
+            </div>
+          </div>
+        )}
         <div className="mt-3 text-center">
           <span
             className="inline-block rounded px-4 py-1 text-sm font-bold"
@@ -107,22 +201,22 @@ function FormalTemplate(data: PreparedPreviewData) {
 
       <div className="grid grid-cols-2 divide-x-2 divide-slate-800 border-b-2 border-slate-800">
         <div className="p-3">
-          <p className="text-xs font-semibold text-slate-500">ลูกค้า</p>
+          <p className="text-xs font-semibold text-slate-500">{T.customerLabel}</p>
           <p className="font-medium text-slate-900">{data.customerName || '—'}</p>
           {data.customerAddress && <p className="text-xs text-slate-600">{data.customerAddress}</p>}
         </div>
         <div className="p-3">
           <div className="flex justify-between">
-            <span className="text-xs text-slate-500">เลขที่เอกสาร</span>
-            <span className="font-medium text-slate-900">{data.documentNumber ?? 'จะออกเลขเมื่ออนุมัติ'}</span>
+            <span className="text-xs text-slate-500">{T.documentNumberLabel}</span>
+            <span className="font-medium text-slate-900">{data.documentNumber ?? T.pendingDocumentNumberLabel}</span>
           </div>
           <div className="mt-1 flex justify-between">
-            <span className="text-xs text-slate-500">วันที่ออกเอกสาร</span>
+            <span className="text-xs text-slate-500">{T.issueDateLabel}</span>
             <span className="text-slate-900">{data.issueDate ? formatThaiDate(data.issueDate) : '—'}</span>
           </div>
           {data.dueDate && (
             <div className="mt-1 flex justify-between">
-              <span className="text-xs text-slate-500">ครบกำหนด</span>
+              <span className="text-xs text-slate-500">{T.dueDateLabel}</span>
               <span className="text-slate-900">{formatThaiDate(data.dueDate)}</span>
             </div>
           )}
@@ -133,17 +227,17 @@ function FormalTemplate(data: PreparedPreviewData) {
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="bg-slate-100">
-              <th className="border border-slate-800 p-2 font-medium">รายการ</th>
-              <th className="border border-slate-800 p-2 text-right font-medium">จำนวน</th>
-              <th className="border border-slate-800 p-2 text-right font-medium">ราคา/หน่วย</th>
-              <th className="border border-slate-800 p-2 text-right font-medium">จำนวนเงิน</th>
+              <th className="border border-slate-800 p-2 font-medium">{T.itemDescriptionLabel}</th>
+              <th className="border border-slate-800 p-2 text-right font-medium">{T.itemQuantityLabel}</th>
+              <th className="border border-slate-800 p-2 text-right font-medium">{T.itemUnitPriceLabel}</th>
+              <th className="border border-slate-800 p-2 text-right font-medium">{T.itemAmountLabel}</th>
             </tr>
           </thead>
           <tbody>
             {data.items.length === 0 ? (
               <tr>
                 <td colSpan={4} className="border border-slate-800 p-4 text-center text-slate-500">
-                  ยังไม่มีรายการ
+                  {T.noItemsLabel}
                 </td>
               </tr>
             ) : (
@@ -163,14 +257,14 @@ function FormalTemplate(data: PreparedPreviewData) {
 
         {data.showInstallments && (
           <div className="mt-3">
-            <p className="mb-1 text-xs font-semibold text-slate-500">เงื่อนไขการชำระเงิน (แบ่งชำระเป็นงวด)</p>
+            <p className="mb-1 text-xs font-semibold text-slate-500">{T.installmentSectionLabel}</p>
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="bg-slate-100">
-                  <th className="border border-slate-800 p-2 font-medium">งวดที่</th>
-                  <th className="border border-slate-800 p-2 font-medium">รายละเอียด</th>
-                  <th className="border border-slate-800 p-2 font-medium">ครบกำหนด</th>
-                  <th className="border border-slate-800 p-2 text-right font-medium">จำนวนเงิน</th>
+                  <th className="border border-slate-800 p-2 font-medium">{T.installmentNoLabel}</th>
+                  <th className="border border-slate-800 p-2 font-medium">{T.installmentDetailLabel}</th>
+                  <th className="border border-slate-800 p-2 font-medium">{T.dueDateLabel}</th>
+                  <th className="border border-slate-800 p-2 text-right font-medium">{T.itemAmountLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -192,42 +286,48 @@ function FormalTemplate(data: PreparedPreviewData) {
         )}
       </div>
 
-      <div className="flex justify-end px-3 pb-3">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-3 pb-3">
+        <p className="flex-1 text-xs italic text-slate-500">({thaiBahtText(data.totals.grandTotal)})</p>
         <div className="w-full max-w-72 border-2 border-slate-800">
           <div className="flex justify-between border-b border-slate-800 p-2">
-            <span className="text-slate-600">รวมเป็นเงิน</span>
+            <span className="text-slate-600">{T.subtotalLabel}</span>
             <span className="text-slate-900">{formatTHB(data.totals.subtotal)}</span>
           </div>
           {data.totals.discountTotal > 0 && (
             <div className="flex justify-between border-b border-slate-800 p-2">
-              <span className="text-slate-600">ส่วนลด</span>
+              <span className="text-slate-600">{T.discountLabel}</span>
               <span className="text-slate-900">-{formatTHB(data.totals.discountTotal)}</span>
             </div>
           )}
           {data.vatMode !== 'NON_VAT' && (
             <div className="flex justify-between border-b border-slate-800 p-2">
-              <span className="text-slate-600">ภาษีมูลค่าเพิ่ม</span>
+              <span className="text-slate-600">{T.vatLabel}</span>
               <span className="text-slate-900">{formatTHB(data.totals.vatAmount)}</span>
             </div>
           )}
           <div className="flex justify-between p-2 font-bold" style={{ backgroundColor: accent, color: accentText }}>
-            <span>ยอดรวมทั้งสิ้น</span>
+            <span>{T.grandTotalLabel}</span>
             <span>{formatTHB(data.totals.grandTotal)}</span>
           </div>
         </div>
       </div>
 
       {data.note && (
-        <p className="whitespace-pre-wrap border-t-2 border-slate-800 p-3 text-xs text-slate-600">หมายเหตุ: {data.note}</p>
+        <p className="whitespace-pre-wrap border-t-2 border-slate-800 p-3 text-xs text-slate-600">
+          {T.noteLabel}: {data.note}
+        </p>
       )}
 
       <div className="flex flex-wrap gap-3 border-t-2 border-slate-800 p-3">
         {data.slots.map((slot) => (
-          <div key={slot.id} className="min-w-40 flex-1 border border-slate-800 p-3 text-center">
-            <div className="h-10" />
-            <p className="border-t border-slate-800 pt-1.5 text-xs font-medium text-slate-700">{slot.label}</p>
-            <p className="mt-1 text-[10px] text-slate-500">วันที่ ____________</p>
-          </div>
+          <SignatureBlock
+            key={slot.id}
+            slot={slot}
+            boxClassName="min-w-40 flex-1 border border-slate-800 p-3"
+            lineClassName="w-full border-t border-slate-800"
+            placeholderClassName="mt-1.5 text-xs text-slate-600"
+            labelClassName="mt-1 text-xs font-medium text-slate-700"
+          />
         ))}
       </div>
     </div>
@@ -242,40 +342,73 @@ function FormalTemplate(data: PreparedPreviewData) {
  */
 function ModernTemplate(data: PreparedPreviewData) {
   const { accent, accentText } = data
+  const isStacked = isCenteredCompanyHeader(data.logoPosition)
   return (
     <div className="bg-white p-5 text-sm sm:p-7">
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <div className="flex items-center gap-3">
-          {data.logoUrl && <img src={data.logoUrl} alt="" className="size-12 shrink-0 object-contain" />}
-          <div>
-            <p className="text-base font-semibold text-slate-900">{data.companyName}</p>
-            {data.companyAddress && <p className="mt-0.5 text-xs text-slate-500">{data.companyAddress}</p>}
+      {shouldRenderLogoAtSlot(data.logoPosition, 'center') && (
+        <div className="mb-4 flex justify-center">
+          <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+        </div>
+      )}
+      {isStacked ? (
+        <div className="flex flex-col items-center gap-0.5 text-center">
+          <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+          <p className="mt-2 text-base font-semibold text-slate-900">{data.companyName}</p>
+          {data.companyAddress && <p className="text-xs text-slate-500">{data.companyAddress}</p>}
+          {data.companyTaxId && <p className="text-xs text-slate-500">เลขประจำตัวผู้เสียภาษี {data.companyTaxId}</p>}
+          {data.companyPhone && <p className="text-xs text-slate-500">โทร {data.companyPhone}</p>}
+          <div className="mt-3">
+            <p className="text-2xl font-light tracking-wide" style={{ color: accent }}>
+              {data.documentTypeLabel}
+            </p>
+            {data.documentNumber ? (
+              <p className="mt-0.5 text-sm font-medium text-slate-700">{data.documentNumber}</p>
+            ) : (
+              <p className="mt-0.5 text-xs italic text-slate-400">{T.pendingDocumentNumberLabel}</p>
+            )}
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-2xl font-light tracking-wide" style={{ color: accent }}>
-            {data.documentTypeLabel}
-          </p>
-          {data.documentNumber ? (
-            <p className="mt-0.5 text-sm font-medium text-slate-700">{data.documentNumber}</p>
-          ) : (
-            <p className="mt-0.5 text-xs italic text-slate-400">จะออกเลขเมื่ออนุมัติ</p>
-          )}
+      ) : (
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="flex items-center gap-3">
+            {shouldRenderLogoAtSlot(data.logoPosition, 'left') && (
+              <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+            )}
+            <div>
+              <p className="text-base font-semibold text-slate-900">{data.companyName}</p>
+              {data.companyAddress && <p className="mt-0.5 text-xs text-slate-500">{data.companyAddress}</p>}
+            </div>
+          </div>
+          <div className="text-right">
+            {shouldRenderLogoAtSlot(data.logoPosition, 'right') && (
+              <div className="mb-2 flex justify-end">
+                <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} />
+              </div>
+            )}
+            <p className="text-2xl font-light tracking-wide" style={{ color: accent }}>
+              {data.documentTypeLabel}
+            </p>
+            {data.documentNumber ? (
+              <p className="mt-0.5 text-sm font-medium text-slate-700">{data.documentNumber}</p>
+            ) : (
+              <p className="mt-0.5 text-xs italic text-slate-400">{T.pendingDocumentNumberLabel}</p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="mt-6 flex flex-wrap justify-between gap-4 border-t border-slate-100 pt-4">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">ลูกค้า</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{T.customerLabel}</p>
           <p className="mt-0.5 font-medium text-slate-900">{data.customerName || '—'}</p>
           {data.customerAddress && <p className="text-xs text-slate-500">{data.customerAddress}</p>}
         </div>
         <div className="text-right">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">วันที่ออกเอกสาร</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{T.issueDateLabel}</p>
           <p className="mt-0.5 text-slate-900">{data.issueDate ? formatThaiDate(data.issueDate) : '—'}</p>
           {data.dueDate && (
             <>
-              <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">ครบกำหนด</p>
+              <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">{T.dueDateLabel}</p>
               <p className="text-slate-900">{formatThaiDate(data.dueDate)}</p>
             </>
           )}
@@ -286,17 +419,17 @@ function ModernTemplate(data: PreparedPreviewData) {
         <table className="w-full text-left">
           <thead>
             <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-400" style={{ borderBottom: `2px solid ${accent}` }}>
-              <th className="pb-2">รายการ</th>
-              <th className="pb-2 text-right">จำนวน</th>
-              <th className="pb-2 text-right">ราคา/หน่วย</th>
-              <th className="pb-2 text-right">จำนวนเงิน</th>
+              <th className="pb-2">{T.itemDescriptionLabel}</th>
+              <th className="pb-2 text-right">{T.itemQuantityLabel}</th>
+              <th className="pb-2 text-right">{T.itemUnitPriceLabel}</th>
+              <th className="pb-2 text-right">{T.itemAmountLabel}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {data.items.length === 0 ? (
               <tr>
                 <td colSpan={4} className="py-4 text-center text-slate-400">
-                  ยังไม่มีรายการ
+                  {T.noItemsLabel}
                 </td>
               </tr>
             ) : (
@@ -317,15 +450,15 @@ function ModernTemplate(data: PreparedPreviewData) {
         {data.showInstallments && (
           <div className="mt-5">
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide" style={{ color: accent }}>
-              เงื่อนไขการชำระเงิน (แบ่งชำระเป็นงวด)
+              {T.installmentSectionLabel}
             </p>
             <table className="w-full text-left">
               <thead>
                 <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-400" style={{ borderBottom: `2px solid ${accent}` }}>
-                  <th className="pb-2">งวดที่</th>
-                  <th className="pb-2">รายละเอียด</th>
-                  <th className="pb-2">ครบกำหนด</th>
-                  <th className="pb-2 text-right">จำนวนเงิน</th>
+                  <th className="pb-2">{T.installmentNoLabel}</th>
+                  <th className="pb-2">{T.installmentDetailLabel}</th>
+                  <th className="pb-2">{T.dueDateLabel}</th>
+                  <th className="pb-2 text-right">{T.itemAmountLabel}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -347,21 +480,22 @@ function ModernTemplate(data: PreparedPreviewData) {
         )}
       </div>
 
-      <div className="mt-6 flex justify-end">
+      <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
+        <p className="flex-1 text-xs italic text-slate-400">({thaiBahtText(data.totals.grandTotal)})</p>
         <div className="w-full max-w-72 space-y-1.5">
           <div className="flex justify-between text-slate-600">
-            <span>รวมเป็นเงิน</span>
+            <span>{T.subtotalLabel}</span>
             <span>{formatTHB(data.totals.subtotal)}</span>
           </div>
           {data.totals.discountTotal > 0 && (
             <div className="flex justify-between text-slate-600">
-              <span>ส่วนลด</span>
+              <span>{T.discountLabel}</span>
               <span>-{formatTHB(data.totals.discountTotal)}</span>
             </div>
           )}
           {data.vatMode !== 'NON_VAT' && (
             <div className="flex justify-between text-slate-600">
-              <span>ภาษีมูลค่าเพิ่ม</span>
+              <span>{T.vatLabel}</span>
               <span>{formatTHB(data.totals.vatAmount)}</span>
             </div>
           )}
@@ -369,20 +503,29 @@ function ModernTemplate(data: PreparedPreviewData) {
             className="flex justify-between rounded-full px-4 py-2 text-base font-semibold"
             style={{ backgroundColor: accent, color: accentText }}
           >
-            <span>ยอดรวมทั้งสิ้น</span>
+            <span>{T.grandTotalLabel}</span>
             <span>{formatTHB(data.totals.grandTotal)}</span>
           </div>
         </div>
       </div>
 
-      {data.note && <p className="mt-6 whitespace-pre-wrap text-xs text-slate-500">หมายเหตุ: {data.note}</p>}
+      {data.note && (
+        <p className="mt-6 whitespace-pre-wrap text-xs text-slate-500">
+          {T.noteLabel}: {data.note}
+        </p>
+      )}
 
       <div className="mt-12 flex flex-wrap justify-between gap-8">
         {data.slots.map((slot) => (
-          <div key={slot.id} className="min-w-36 flex-1 text-center">
-            <div className="h-px w-full" style={{ backgroundColor: accent }} />
-            <p className="mt-2 text-xs font-medium text-slate-600">{slot.label}</p>
-          </div>
+          <SignatureBlock
+            key={slot.id}
+            slot={slot}
+            boxClassName="min-w-36 flex-1"
+            lineClassName="h-px w-full"
+            lineStyle={{ backgroundColor: accent }}
+            placeholderClassName="mt-1.5 text-xs text-slate-500"
+            labelClassName="mt-1 text-xs font-medium text-slate-600"
+          />
         ))}
       </div>
     </div>
@@ -397,36 +540,63 @@ function ModernTemplate(data: PreparedPreviewData) {
  * bottom. No color anywhere, not even for the grand total.
  */
 function MinimalTemplate(data: PreparedPreviewData) {
+  const isStacked = isCenteredCompanyHeader(data.logoPosition)
   return (
     <div className="border border-black bg-white p-4 text-sm text-black">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-black pb-3">
-        <div className="flex items-start gap-2">
-          {data.logoUrl && <img src={data.logoUrl} alt="" className="size-10 shrink-0 object-contain grayscale" />}
-          <div>
-            <p className="font-bold">{data.companyName}</p>
-            {data.companyAddress && <p className="text-xs">{data.companyAddress}</p>}
+      {shouldRenderLogoAtSlot(data.logoPosition, 'center') && (
+        <div className="mb-2 flex justify-center">
+          <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} grayscale />
+        </div>
+      )}
+      {isStacked ? (
+        <div className="flex flex-col items-center gap-0.5 border-b border-black pb-3 text-center">
+          <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} grayscale />
+          <p className="mt-1 font-bold">{data.companyName}</p>
+          {data.companyAddress && <p className="text-xs">{data.companyAddress}</p>}
+          {data.companyTaxId && <p className="text-xs">เลขประจำตัวผู้เสียภาษี {data.companyTaxId}</p>}
+          {data.companyPhone && <p className="text-xs">โทร {data.companyPhone}</p>}
+          <div className="mt-2">
+            <p className="font-bold">{data.documentTypeLabel}</p>
+            <p className="text-xs">{data.documentNumber ?? T.pendingDocumentNumberLabel}</p>
           </div>
         </div>
-        <div className="text-right">
-          <p className="font-bold">{data.documentTypeLabel}</p>
-          <p className="text-xs">{data.documentNumber ?? 'จะออกเลขเมื่ออนุมัติ'}</p>
+      ) : (
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-black pb-3">
+          <div className="flex items-center gap-2">
+            {shouldRenderLogoAtSlot(data.logoPosition, 'left') && (
+              <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} grayscale />
+            )}
+            <div>
+              <p className="font-bold">{data.companyName}</p>
+              {data.companyAddress && <p className="text-xs">{data.companyAddress}</p>}
+            </div>
+          </div>
+          <div className="text-right">
+            {shouldRenderLogoAtSlot(data.logoPosition, 'right') && (
+              <div className="mb-1 flex justify-end">
+                <CompanyLogo logoUrl={data.logoUrl} size={data.logoSize} grayscale />
+              </div>
+            )}
+            <p className="font-bold">{data.documentTypeLabel}</p>
+            <p className="text-xs">{data.documentNumber ?? T.pendingDocumentNumberLabel}</p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-2 divide-x divide-black border-b border-black">
         <div className="p-2">
-          <p className="text-xs">ลูกค้า</p>
+          <p className="text-xs">{T.customerLabel}</p>
           <p className="font-medium">{data.customerName || '—'}</p>
           {data.customerAddress && <p className="text-xs">{data.customerAddress}</p>}
         </div>
         <div className="p-2">
           <div className="flex justify-between text-xs">
-            <span>วันที่ออกเอกสาร</span>
+            <span>{T.issueDateLabel}</span>
             <span>{data.issueDate ? formatThaiDate(data.issueDate) : '—'}</span>
           </div>
           {data.dueDate && (
             <div className="mt-1 flex justify-between text-xs">
-              <span>ครบกำหนด</span>
+              <span>{T.dueDateLabel}</span>
               <span>{formatThaiDate(data.dueDate)}</span>
             </div>
           )}
@@ -437,17 +607,17 @@ function MinimalTemplate(data: PreparedPreviewData) {
         <table className="w-full border-collapse text-left">
           <thead>
             <tr>
-              <th className="border border-black p-1.5 font-medium">รายการ</th>
-              <th className="border border-black p-1.5 text-right font-medium">จำนวน</th>
-              <th className="border border-black p-1.5 text-right font-medium">ราคา/หน่วย</th>
-              <th className="border border-black p-1.5 text-right font-medium">จำนวนเงิน</th>
+              <th className="border border-black p-1.5 font-medium">{T.itemDescriptionLabel}</th>
+              <th className="border border-black p-1.5 text-right font-medium">{T.itemQuantityLabel}</th>
+              <th className="border border-black p-1.5 text-right font-medium">{T.itemUnitPriceLabel}</th>
+              <th className="border border-black p-1.5 text-right font-medium">{T.itemAmountLabel}</th>
             </tr>
           </thead>
           <tbody>
             {data.items.length === 0 ? (
               <tr>
                 <td colSpan={4} className="border border-black p-4 text-center">
-                  ยังไม่มีรายการ
+                  {T.noItemsLabel}
                 </td>
               </tr>
             ) : (
@@ -467,14 +637,14 @@ function MinimalTemplate(data: PreparedPreviewData) {
 
         {data.showInstallments && (
           <div className="mt-2">
-            <p className="mb-1 text-xs font-medium">เงื่อนไขการชำระเงิน (แบ่งชำระเป็นงวด)</p>
+            <p className="mb-1 text-xs font-medium">{T.installmentSectionLabel}</p>
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr>
-                  <th className="border border-black p-1.5 font-medium">งวดที่</th>
-                  <th className="border border-black p-1.5 font-medium">รายละเอียด</th>
-                  <th className="border border-black p-1.5 font-medium">ครบกำหนด</th>
-                  <th className="border border-black p-1.5 text-right font-medium">จำนวนเงิน</th>
+                  <th className="border border-black p-1.5 font-medium">{T.installmentNoLabel}</th>
+                  <th className="border border-black p-1.5 font-medium">{T.installmentDetailLabel}</th>
+                  <th className="border border-black p-1.5 font-medium">{T.dueDateLabel}</th>
+                  <th className="border border-black p-1.5 text-right font-medium">{T.itemAmountLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -496,39 +666,48 @@ function MinimalTemplate(data: PreparedPreviewData) {
         )}
       </div>
 
-      <div className="flex justify-end border-t border-black pt-2">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-t border-black pt-2">
+        <p className="flex-1 text-xs italic">({thaiBahtText(data.totals.grandTotal)})</p>
         <div className="w-full max-w-64 space-y-1">
           <div className="flex justify-between">
-            <span>รวมเป็นเงิน</span>
+            <span>{T.subtotalLabel}</span>
             <span>{formatTHB(data.totals.subtotal)}</span>
           </div>
           {data.totals.discountTotal > 0 && (
             <div className="flex justify-between">
-              <span>ส่วนลด</span>
+              <span>{T.discountLabel}</span>
               <span>-{formatTHB(data.totals.discountTotal)}</span>
             </div>
           )}
           {data.vatMode !== 'NON_VAT' && (
             <div className="flex justify-between">
-              <span>ภาษีมูลค่าเพิ่ม</span>
+              <span>{T.vatLabel}</span>
               <span>{formatTHB(data.totals.vatAmount)}</span>
             </div>
           )}
           <div className="flex justify-between border-t border-black pt-1 font-bold">
-            <span>ยอดรวมทั้งสิ้น</span>
+            <span>{T.grandTotalLabel}</span>
             <span>{formatTHB(data.totals.grandTotal)}</span>
           </div>
         </div>
       </div>
 
-      {data.note && <p className="mt-3 whitespace-pre-wrap border-t border-black pt-2 text-xs">หมายเหตุ: {data.note}</p>}
+      {data.note && (
+        <p className="mt-3 whitespace-pre-wrap border-t border-black pt-2 text-xs">
+          {T.noteLabel}: {data.note}
+        </p>
+      )}
 
       <div className="mt-6 flex flex-wrap gap-6">
         {data.slots.map((slot) => (
-          <div key={slot.id} className="min-w-32 flex-1 text-center">
-            <div className="h-10 border-b border-black" />
-            <p className="mt-1 text-xs">{slot.label}</p>
-          </div>
+          <SignatureBlock
+            key={slot.id}
+            slot={slot}
+            boxClassName="min-w-32 flex-1"
+            lineClassName="w-full border-b border-black"
+            placeholderClassName="mt-1.5 text-xs"
+            labelClassName="mt-1 text-xs"
+          />
         ))}
       </div>
     </div>
@@ -536,20 +715,24 @@ function MinimalTemplate(data: PreparedPreviewData) {
 }
 
 /**
- * A live, on-screen preview of a document — not a printable/exportable
- * document (PDF export is Phase 5A). Used both while editing a Draft
- * (DocumentForm, no documentNumber yet) and on the read-only detail page
- * (DocumentDetailPage, Phase 4B) once a real document_number exists.
+ * A live preview of a document. Used while editing a Draft (DocumentForm,
+ * no documentNumber yet), on the read-only detail page (DocumentDetailPage,
+ * Phase 4B) once a real document_number exists, and on the print/export
+ * route (DocumentPrintPage) — the same rendering is what gets printed to
+ * PDF, so there is only one layout implementation to keep correct.
  *
  * Renders one of 3 structurally distinct layouts (production readiness
  * pass 2 redesign) — not just a color swap on one shared layout — see
- * FormalTemplate/ModernTemplate/MinimalTemplate above, mirrored exactly
- * in src/lib/pdf/DocumentPdf.tsx for the exported PDF.
+ * FormalTemplate/ModernTemplate/MinimalTemplate above.
  */
 export function DocumentPreview({
   companyName,
   companyAddress,
+  companyTaxId,
+  companyPhone,
   logoUrl,
+  logoSize,
+  logoPosition,
   template,
   documentTypeLabel,
   documentNumber,
@@ -569,7 +752,11 @@ export function DocumentPreview({
   const data: PreparedPreviewData = {
     companyName,
     companyAddress,
+    companyTaxId,
+    companyPhone,
     logoUrl,
+    logoSize: clampLogoSize(logoSize ?? LOGO_SIZE_DEFAULT),
+    logoPosition: logoPosition ?? 'left_of_company_name',
     documentTypeLabel,
     documentNumber,
     customerName,

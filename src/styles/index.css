@@ -52,3 +52,22 @@
     min-height: 100svh;
   }
 }
+
+/*
+ * Document export/print (DocumentPrintPage.tsx). That route renders no
+ * AppShell — no sidebar/topbar/toast — so there's nothing else on the
+ * page to hide; this only needs to set up the A4 page itself. Tailwind's
+ * built-in `print:` variant (used directly in DocumentPrintPage.tsx)
+ * handles hiding the on-screen-only "พิมพ์ / บันทึกเป็น PDF" button.
+ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff;
+  }
+}
