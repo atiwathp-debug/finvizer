@@ -1,5 +1,6 @@
 import type { DocumentTemplateEnum } from '@/types/database'
 import type { LogoPosition } from '@/types/logoLayout'
+import type { DocumentTemplateTextOverrides } from '@/lib/templates/documentTemplateText'
 
 export interface Company {
   id: string
@@ -21,6 +22,8 @@ export interface Company {
   logoSize: number
   /** Which document-header slot the logo renders at (Pass 2.1) — see src/types/logoLayout.ts. */
   logoPosition: LogoPosition
+  /** Pass 4: per-company overrides for document template display text — see src/lib/templates/documentTemplateText.ts. */
+  templateTextOverrides: DocumentTemplateTextOverrides
   createdAt: string
   updatedAt: string
 }

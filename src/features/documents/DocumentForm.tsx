@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
+import { resolveDocumentTypeLabel } from '@/lib/templates/documentTemplateText'
 import { documentTypeLabels, vatModeLabels } from '@/types/document'
 import type { Company } from '@/types/company'
 import type { Customer } from '@/types/customer'
@@ -210,7 +211,7 @@ export function DocumentForm({
               logoSize={company.logoSize}
               logoPosition={company.logoPosition}
               template={company.documentTemplate}
-              documentTypeLabel={documentTypeLabels[documentType]}
+              documentTypeLabel={resolveDocumentTypeLabel(documentType, company.templateTextOverrides)}
               customerName={selectedCustomer?.name}
               customerAddress={selectedCustomer?.address}
               issueDate={watched.issueDate ?? ''}
@@ -228,6 +229,7 @@ export function DocumentForm({
               signatureSlots={signatureSlots}
               installmentPlan={watched.installmentPlan}
               installments={watched.installments}
+              templateTextOverrides={company.templateTextOverrides}
             />
           </div>
         </div>

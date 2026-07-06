@@ -6,9 +6,11 @@ import {
   updateMockCompanyLogo,
   updateMockCompanyLogoLayout,
   updateMockCompanyTemplate,
+  updateMockCompanyTemplateText,
 } from '@/lib/mock/mockCompany'
 import { logError } from '@/lib/utils/debugLog'
 import { clampLogoSize, type LogoPosition } from '@/types/logoLayout'
+import type { DocumentTemplateTextOverrides } from '@/lib/templates/documentTemplateText'
 import type { CompanyRow, DocumentTemplateEnum } from '@/types/database'
 import type { Company } from '@/types/company'
 import type { MemberRole } from '@/types/member'
@@ -31,6 +33,10 @@ export function mapCompanyRow(row: CompanyRow): Company {
     documentTemplate: row.document_template,
     logoSize: row.logo_size,
     logoPosition: row.logo_position,
+    // template_text_overrides defaults to '{}' at the DB level (see
+    // 20260721120000_document_template_text_overrides.sql), but guard here
+    // too in case a row predates the column in a stale local snapshot.
+    templateTextOverrides: (row.template_text_overrides as DocumentTemplateTextOverrides | null) ?? {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -285,6 +291,34 @@ export async function updateCompanyLogoLayout(
     return mapCompanyRow(data)
   } catch (error) {
     logError('company.updateCompanyLogoLayout', error, { companyId, input })
+    throw error
+  }
+}
+
+/**
+ * Sets the company's document template-text overrides (Pass 4) — a
+ * separate save action from every other company field, same "one column,
+ * one dedicated update fn" pattern as updateCompanyLogoLayout above. The
+ * whole overrides object is always replaced as one unit (never a
+ * single-label patch), matching how the Settings page edits it.
+ */
+export async function updateCompanyTemplateText(
+  companyId: string,
+  overrides: DocumentTemplateTextOverrides,
+): Promise<Company> {
+  if (isMockMode) return updateMockCompanyTemplateText(companyId, overrides)
+
+  try {
+    const { data, error } = await requireSupabase()
+      .from('companies')
+      .update({ template_text_overrides: overrides })
+      .eq('id', companyId)
+      .select()
+      .single()
+    if (error) throw error
+    return mapCompanyRow(data)
+  } catch (error) {
+    logError('company.updateCompanyTemplateText', error, { companyId, overrides })
     throw error
   }
 }

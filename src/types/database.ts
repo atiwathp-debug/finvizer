@@ -68,6 +68,9 @@ export type CompanyRow = {
   // supabase/migrations/20260719120000_company_logo_layout.sql.
   logo_size: number
   logo_position: LogoPositionCode
+  // Pass 4 addition — see
+  // supabase/migrations/20260721120000_document_template_text_overrides.sql.
+  template_text_overrides: Json
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -160,6 +163,7 @@ export interface Database {
           document_template?: DocumentTemplateEnum | null
           logo_size?: number
           logo_position?: LogoPositionCode
+          template_text_overrides?: Json
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -182,6 +186,7 @@ export interface Database {
           document_template?: DocumentTemplateEnum | null
           logo_size?: number
           logo_position?: LogoPositionCode
+          template_text_overrides?: Json
           created_at?: string
           updated_at?: string
           deleted_at?: string | null

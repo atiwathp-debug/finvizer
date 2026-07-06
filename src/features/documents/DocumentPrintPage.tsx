@@ -10,6 +10,7 @@ import { logAuditEvent } from '@/lib/supabase/auditLog'
 import { logError } from '@/lib/utils/debugLog'
 import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
+import { resolveDocumentTypeLabel } from '@/lib/templates/documentTemplateText'
 import { documentTypeLabels, type DocumentRecord } from '@/types/document'
 import type { DocumentTotalsResult } from '@/lib/calculations/documentTotals'
 import type { Customer } from '@/types/customer'
@@ -129,7 +130,7 @@ export function DocumentPrintPage() {
         logoSize={company.logoSize}
         logoPosition={company.logoPosition}
         template={company.documentTemplate}
-        documentTypeLabel={documentTypeLabels[document.documentType]}
+        documentTypeLabel={resolveDocumentTypeLabel(document.documentType, company.templateTextOverrides)}
         documentNumber={document.documentNumber}
         customerName={customer?.name}
         customerAddress={customer?.address}
@@ -148,6 +149,7 @@ export function DocumentPrintPage() {
         signatureSlots={signatureSlots}
         installmentPlan={installments.length > 0 ? 'INSTALLMENT' : 'FULL'}
         installments={installments}
+        templateTextOverrides={company.templateTextOverrides}
       />
     </div>
   )

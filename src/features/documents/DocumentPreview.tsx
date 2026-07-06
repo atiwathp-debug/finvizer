@@ -3,15 +3,13 @@ import { calculateInstallmentAmount, type DocumentTotalsResult, type Installment
 import { formatTHB, formatThaiDate } from '@/lib/utils/currency'
 import { thaiBahtText } from '@/lib/utils/thaiBahtText'
 import { getTemplatePalette } from '@/lib/templates/previewPalette'
-import { DEFAULT_DOCUMENT_TEMPLATE_TEXT } from '@/lib/templates/documentTemplateText'
+import { resolveDocumentTemplateText, type DocumentTemplateText, type DocumentTemplateTextOverrides } from '@/lib/templates/documentTemplateText'
 import { withSignatureFallback } from '@/lib/signatures/defaultSignatureSlots'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { LOGO_SIZE_DEFAULT, clampLogoSize, isCenteredCompanyHeader, shouldRenderLogoAtSlot, type LogoPosition } from '@/types/logoLayout'
 import type { VatMode } from '@/types/document'
 import type { DocumentTemplateEnum } from '@/types/database'
 import type { SignatureSlot } from '@/types/signature'
-
-const T = DEFAULT_DOCUMENT_TEMPLATE_TEXT
 
 /**
  * The one place all 3 templates render a signature slot: a blank space to
@@ -95,6 +93,8 @@ interface DocumentPreviewProps {
   /** Defaults to FULL — when INSTALLMENT, an installment table renders between line items and totals. */
   installmentPlan?: 'FULL' | 'INSTALLMENT'
   installments?: PreviewInstallment[]
+  /** Company's saved label customizations (Pass 4, Settings > ข้อความในเอกสาร) — omitted/absent falls back to the Thai defaults, same as every other optional field here. */
+  templateTextOverrides?: DocumentTemplateTextOverrides | null
 }
 
 /** Everything every template layout needs, pre-derived once so the 3 layout components below stay pure rendering. */
@@ -121,6 +121,7 @@ interface PreparedPreviewData {
   installments: PreviewInstallment[]
   accent: string
   accentText: string
+  text: DocumentTemplateText
 }
 
 function installmentAmount(installment: PreviewInstallment, grandTotal: number): number {
@@ -135,7 +136,7 @@ function installmentAmount(installment: PreviewInstallment, grandTotal: number):
  * boxes — everything is boxed, nothing floats free.
  */
 function FormalTemplate(data: PreparedPreviewData) {
-  const { accent, accentText } = data
+  const { accent, accentText, text: T } = data
   // Both left/right slots always reserve this same width, whichever one
   // (if either) actually holds the logo — so the centered company name
   // stays perfectly centered regardless of logoPosition or logoSize.
@@ -341,7 +342,7 @@ function FormalTemplate(data: PreparedPreviewData) {
  * the title and the grand-total pill — everything else stays plain.
  */
 function ModernTemplate(data: PreparedPreviewData) {
-  const { accent, accentText } = data
+  const { accent, accentText, text: T } = data
   const isStacked = isCenteredCompanyHeader(data.logoPosition)
   return (
     <div className="bg-white p-5 text-sm sm:p-7">
@@ -540,6 +541,7 @@ function ModernTemplate(data: PreparedPreviewData) {
  * bottom. No color anywhere, not even for the grand total.
  */
 function MinimalTemplate(data: PreparedPreviewData) {
+  const T = data.text
   const isStacked = isCenteredCompanyHeader(data.logoPosition)
   return (
     <div className="border border-black bg-white p-4 text-sm text-black">
@@ -747,6 +749,7 @@ export function DocumentPreview({
   signatureSlots,
   installmentPlan,
   installments,
+  templateTextOverrides,
 }: DocumentPreviewProps) {
   const palette = getTemplatePalette(template)
   const data: PreparedPreviewData = {
@@ -772,6 +775,7 @@ export function DocumentPreview({
     installments: installments ?? [],
     accent: palette.accent,
     accentText: palette.accentText,
+    text: resolveDocumentTemplateText(templateTextOverrides),
   }
 
   if (template === 'MODERN_ACCENT') return <ModernTemplate {...data} />

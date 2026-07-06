@@ -24,6 +24,7 @@ import { CustomersPage } from '@/features/customers/CustomersPage'
 import { CompanySettingsPage } from '@/features/company/CompanySettingsPage'
 import { MembersSettingsPage } from '@/features/members/MembersSettingsPage'
 import { TemplateSettingsPage } from '@/features/templates/TemplateSettingsPage'
+import { TemplateTextSettingsPage } from '@/features/templates/TemplateTextSettingsPage'
 import { SignatureSettingsPage } from '@/features/signatures/SignatureSettingsPage'
 import { NumberingSettingsPage } from '@/features/numbering/NumberingSettingsPage'
 import { PrivacySettingsPage } from '@/features/privacy/PrivacySettingsPage'
@@ -132,6 +133,7 @@ export const router = createBrowserRouter(
                         { path: '/settings/company', element: <CompanySettingsPage /> },
                         { path: '/settings/members', element: <MembersSettingsPage /> },
                         { path: '/settings/templates', element: <TemplateSettingsPage /> },
+                        { path: '/settings/template-text', element: <TemplateTextSettingsPage /> },
                         { path: '/settings/signatures', element: <SignatureSettingsPage /> },
                         { path: '/settings/numbering', element: <NumberingSettingsPage /> },
                         { path: '/settings/privacy', element: <PrivacySettingsPage /> },

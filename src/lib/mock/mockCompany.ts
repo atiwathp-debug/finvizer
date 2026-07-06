@@ -1,5 +1,6 @@
 import { addMockMember, getMockMembershipForUser } from '@/lib/mock/mockMembers'
 import { LOGO_SIZE_DEFAULT, clampLogoSize, type LogoPosition } from '@/types/logoLayout'
+import type { DocumentTemplateTextOverrides } from '@/lib/templates/documentTemplateText'
 import type { Company } from '@/types/company'
 import type { DocumentTemplateEnum } from '@/types/database'
 import type { MemberRole } from '@/types/member'
@@ -76,6 +77,7 @@ export function createMockCompany(userId: string, input: MockCompanyOnboardingIn
     documentTemplate: null,
     logoSize: LOGO_SIZE_DEFAULT,
     logoPosition: 'left_of_company_name',
+    templateTextOverrides: {},
     createdAt: now,
     updatedAt: now,
   }
@@ -182,6 +184,27 @@ export function updateMockCompanyLogoLayout(companyId: string, input: MockCompan
     ...companies[index],
     logoSize: clampLogoSize(input.logoSize),
     logoPosition: input.logoPosition,
+    updatedAt: new Date().toISOString(),
+  }
+  companies[index] = updated
+  writeCompanies(companies)
+  return updated
+}
+
+/** Used by lib/supabase/company.ts's updateCompanyTemplateText — replaces the whole overrides object, same pattern as updateMockCompanyLogoLayout. */
+export function updateMockCompanyTemplateText(
+  companyId: string,
+  overrides: DocumentTemplateTextOverrides,
+): Company {
+  const companies = readCompanies()
+  const index = companies.findIndex((c) => c.id === companyId)
+  if (index === -1) {
+    throw new Error('ไม่พบบริษัท')
+  }
+
+  const updated: Company = {
+    ...companies[index],
+    templateTextOverrides: overrides,
     updatedAt: new Date().toISOString(),
   }
   companies[index] = updated

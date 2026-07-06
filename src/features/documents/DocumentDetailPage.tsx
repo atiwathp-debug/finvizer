@@ -31,6 +31,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import { canApproveDocument, canEditDocument, canMarkDocumentPaid } from '@/lib/permissions/documentPermissions'
 import { toast } from '@/stores/toastStore'
+import { resolveDocumentTypeLabel } from '@/lib/templates/documentTemplateText'
 import { documentConversionMap, documentTypeLabels, revisionLabel, type DocumentRecord, type DocumentType } from '@/types/document'
 import type { DocumentTotalsResult } from '@/lib/calculations/documentTotals'
 import type { AuditLogRecord } from '@/types/auditLog'
@@ -411,7 +412,7 @@ export function DocumentDetailPage() {
         logoSize={company.logoSize}
         logoPosition={company.logoPosition}
         template={company.documentTemplate}
-        documentTypeLabel={documentTypeLabels[document.documentType]}
+        documentTypeLabel={resolveDocumentTypeLabel(document.documentType, company.templateTextOverrides)}
         documentNumber={document.documentNumber}
         customerName={customer?.name}
         customerAddress={customer?.address}
@@ -430,6 +431,7 @@ export function DocumentDetailPage() {
         signatureSlots={signatureSlots}
         installmentPlan={installments.length > 0 ? 'INSTALLMENT' : 'FULL'}
         installments={installments}
+        templateTextOverrides={company.templateTextOverrides}
       />
 
       {revisions.length > 0 && originalDocument && (
