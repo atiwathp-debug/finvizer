@@ -33,6 +33,7 @@ import {
   topCustomersByAmount,
   topCustomersByFrequency,
   trackQuotationStatuses,
+  unpaidInvoices,
   type QuotationTracking,
   type QuotationTrackingStatus,
 } from '@/lib/reports/documentReports'
@@ -99,6 +100,8 @@ export function DashboardPage() {
 
   const pendingCount = isLoading ? 0 : pendingApprovalCount(filtered)
   const pendingDocuments = isLoading ? [] : pendingApprovalDocuments(filtered)
+  const unpaidInvoiceDocuments = isLoading ? [] : unpaidInvoices(filtered)
+  const unpaidInvoiceCount = isLoading ? 0 : unpaidInvoices(filtered, Number.POSITIVE_INFINITY).length
   const invoiced = isLoading ? 0 : invoicedSalesTotal(filtered)
   const paid = isLoading ? 0 : paidSalesTotal(filtered)
   const monthly = isLoading ? [] : invoicedVsPaidMonthly(filtered)
@@ -191,6 +194,42 @@ export function DashboardPage() {
             {pendingCount > pendingDocuments.length && (
               <p className="border-t border-line px-4 py-2 text-xs text-ink-muted">
                 แสดงล่าสุด {pendingDocuments.length} รายการ
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-medium text-ink">ใบแจ้งหนี้ค้างชำระ</h2>
+        {isLoading ? (
+          <TableSkeleton rows={3} />
+        ) : unpaidInvoiceDocuments.length === 0 ? (
+          <EmptyState icon={Wallet} title="ไม่มีใบแจ้งหนี้ค้างชำระในช่วงวันที่นี้" />
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-line bg-white">
+            <ul className="divide-y divide-line">
+              {unpaidInvoiceDocuments.map((doc) => (
+                <li key={doc.id}>
+                  <Link
+                    to={`/documents/${doc.id}`}
+                    className="flex items-center justify-between gap-4 p-4 hover:bg-surface"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-ink">
+                        {doc.documentNumber ?? documentTypeLabels[doc.documentType]} ·{' '}
+                        {customerNameById.get(doc.customerId ?? '') ?? 'ลูกค้าที่ถูกลบ'}
+                      </p>
+                      <p className="text-xs text-ink-muted">{formatThaiDate(doc.dueDate ?? doc.issueDate)}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-ink">{formatTHB(doc.grandTotal)}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {unpaidInvoiceCount > unpaidInvoiceDocuments.length && (
+              <p className="border-t border-line px-4 py-2 text-xs text-ink-muted">
+                แสดงล่าสุด {unpaidInvoiceDocuments.length} รายการ
               </p>
             )}
           </div>

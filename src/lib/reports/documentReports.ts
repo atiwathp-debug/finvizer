@@ -65,6 +65,22 @@ export function outstandingInvoiceTotal(documents: DocumentRecord[]): number {
   return documents.filter((d) => d.documentType === 'INVOICE' && d.status === 'APPROVED').reduce((sum, d) => sum + d.grandTotal, 0)
 }
 
+/**
+ * The most recently created issued INVOICE documents still awaiting
+ * payment, newest first, capped at `limit` — powers the Dashboard's
+ * "ใบแจ้งหนี้ค้างชำระ" list. Same APPROVED-only predicate as
+ * outstandingInvoiceTotal (DRAFT has no document number yet, PAID is
+ * already settled, CANCELLED is void — none of those are "unpaid" in the
+ * collections sense), and the same createdAt-descending sort as
+ * pendingApprovalDocuments.
+ */
+export function unpaidInvoices(documents: DocumentRecord[], limit = 5): DocumentRecord[] {
+  return documents
+    .filter((d) => d.documentType === 'INVOICE' && d.status === 'APPROVED')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit)
+}
+
 export interface InvoicedVsPaidMonthly {
   /** "YYYY-MM" */
   key: string

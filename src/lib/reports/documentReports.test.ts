@@ -12,6 +12,7 @@ import {
   topCustomersByAmount,
   topCustomersByFrequency,
   trackQuotationStatuses,
+  unpaidInvoices,
 } from './documentReports'
 import type { DocumentRecord } from '@/types/document'
 
@@ -156,6 +157,58 @@ describe('invoicedSalesTotal / paidSalesTotal / outstandingInvoiceTotal', () => 
     expect(invoicedSalesTotal([])).toBe(0)
     expect(paidSalesTotal([])).toBe(0)
     expect(outstandingInvoiceTotal([])).toBe(0)
+  })
+})
+
+describe('unpaidInvoices', () => {
+  it('returns only APPROVED INVOICE documents, newest createdAt first', () => {
+    const oldest = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', createdAt: '2026-01-01T00:00:00.000Z' })
+    const middle = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', createdAt: '2026-02-01T00:00:00.000Z' })
+    const newest = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', createdAt: '2026-03-01T00:00:00.000Z' })
+
+    const result = unpaidInvoices([oldest, middle, newest])
+
+    expect(result.map((d) => d.id)).toEqual([newest.id, middle.id, oldest.id])
+  })
+
+  it('excludes DRAFT, PAID, and CANCELLED invoices', () => {
+    const documents = [
+      makeDocument({ documentType: 'INVOICE', status: 'DRAFT' }),
+      makeDocument({ documentType: 'INVOICE', status: 'PAID' }),
+      makeDocument({ documentType: 'INVOICE', status: 'CANCELLED' }),
+      makeDocument({ documentType: 'INVOICE', status: 'APPROVED' }),
+    ]
+
+    const result = unpaidInvoices(documents)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].status).toBe('APPROVED')
+  })
+
+  it('excludes non-INVOICE documents even when APPROVED', () => {
+    const documents = [
+      makeDocument({ documentType: 'QUOTATION', status: 'APPROVED' }),
+      makeDocument({ documentType: 'RECEIPT', status: 'APPROVED' }),
+      makeDocument({ documentType: 'INVOICE', status: 'APPROVED' }),
+    ]
+
+    const result = unpaidInvoices(documents)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].documentType).toBe('INVOICE')
+  })
+
+  it('caps the result at `limit`, defaulting to 5', () => {
+    const invoices = Array.from({ length: 8 }, (_, i) =>
+      makeDocument({ documentType: 'INVOICE', status: 'APPROVED', createdAt: `2026-01-0${i + 1}T00:00:00.000Z` }),
+    )
+
+    expect(unpaidInvoices(invoices)).toHaveLength(5)
+    expect(unpaidInvoices(invoices, 3)).toHaveLength(3)
+  })
+
+  it('returns an empty array when there are no unpaid invoices', () => {
+    expect(unpaidInvoices([makeDocument({ documentType: 'INVOICE', status: 'PAID' })])).toEqual([])
   })
 })
 
