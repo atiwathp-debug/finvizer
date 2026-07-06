@@ -24,6 +24,7 @@ import { listCustomers } from '@/lib/supabase/customers'
 import { useCompanyStore } from '@/stores/companyStore'
 import {
   defaultDashboardDateRange,
+  dueSoonInvoices,
   filterDocumentsByDateRange,
   invoicedSalesTotal,
   invoicedVsPaidMonthly,
@@ -102,6 +103,12 @@ export function DashboardPage() {
   const pendingDocuments = isLoading ? [] : pendingApprovalDocuments(filtered)
   const unpaidInvoiceDocuments = isLoading ? [] : unpaidInvoices(filtered)
   const unpaidInvoiceCount = isLoading ? 0 : unpaidInvoices(filtered, Number.POSITIVE_INFINITY).length
+  // Intentionally scoped to the full, unfiltered `documents` list, not
+  // `filtered` — this is an operational "collect this now" reminder tied to
+  // today's date, not a historical metric, so it must never be hidden by
+  // the dashboard's issue-date-range picker.
+  const dueSoonDocuments = isLoading ? [] : dueSoonInvoices(documents)
+  const dueSoonCount = isLoading ? 0 : dueSoonInvoices(documents, Number.POSITIVE_INFINITY).length
   const invoiced = isLoading ? 0 : invoicedSalesTotal(filtered)
   const paid = isLoading ? 0 : paidSalesTotal(filtered)
   const monthly = isLoading ? [] : invoicedVsPaidMonthly(filtered)
@@ -230,6 +237,42 @@ export function DashboardPage() {
             {unpaidInvoiceCount > unpaidInvoiceDocuments.length && (
               <p className="border-t border-line px-4 py-2 text-xs text-ink-muted">
                 แสดงล่าสุด {unpaidInvoiceDocuments.length} รายการ
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-medium text-ink">รายการใกล้ครบกำหนดเรียกเก็บเงินใน 2 วัน</h2>
+        {isLoading ? (
+          <TableSkeleton rows={3} />
+        ) : dueSoonDocuments.length === 0 ? (
+          <EmptyState icon={FileClock} title="ไม่มีรายการใกล้ครบกำหนดเรียกเก็บเงินใน 2 วันนี้" />
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-line bg-white">
+            <ul className="divide-y divide-line">
+              {dueSoonDocuments.map((doc) => (
+                <li key={doc.id}>
+                  <Link
+                    to={`/documents/${doc.id}`}
+                    className="flex items-center justify-between gap-4 p-4 hover:bg-surface"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-ink">
+                        {doc.documentNumber ?? documentTypeLabels[doc.documentType]} ·{' '}
+                        {customerNameById.get(doc.customerId ?? '') ?? 'ลูกค้าที่ถูกลบ'}
+                      </p>
+                      <p className="text-xs text-ink-muted">{formatThaiDate(doc.dueDate as string)}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-ink">{formatTHB(doc.grandTotal)}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {dueSoonCount > dueSoonDocuments.length && (
+              <p className="border-t border-line px-4 py-2 text-xs text-ink-muted">
+                แสดงล่าสุด {dueSoonDocuments.length} รายการ
               </p>
             )}
           </div>

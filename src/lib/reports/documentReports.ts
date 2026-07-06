@@ -81,6 +81,37 @@ export function unpaidInvoices(documents: DocumentRecord[], limit = 5): Document
     .slice(0, limit)
 }
 
+/**
+ * Issued INVOICE documents still awaiting payment whose dueDate falls
+ * within [today, today + 2 days] (both inclusive, UTC), soonest due first,
+ * capped at `limit` — powers the Dashboard's "รายการใกล้ครบกำหนดเรียกเก็บเงินใน 2 วัน"
+ * collections list. Same APPROVED-only predicate as unpaidInvoices,
+ * additionally requiring a dueDate (documents with none are excluded, not
+ * treated as due). Deliberately excludes overdue invoices (dueDate before
+ * today) — this pass is only the "coming due" reminder, not a general
+ * collections list. `now` is injectable for deterministic tests, same
+ * pattern as invoicedVsPaidMonthly. Unlike the other Dashboard lists, this
+ * is never scoped to the dashboard's date-range filter by its caller — it's
+ * an operational reminder tied to today's date, not a historical metric.
+ */
+export function dueSoonInvoices(documents: DocumentRecord[], limit = 5, now: Date = new Date()): DocumentRecord[] {
+  const todayStr = now.toISOString().slice(0, 10)
+  const laterDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 2))
+  const laterStr = laterDate.toISOString().slice(0, 10)
+
+  return documents
+    .filter(
+      (d) =>
+        d.documentType === 'INVOICE' &&
+        d.status === 'APPROVED' &&
+        d.dueDate !== null &&
+        d.dueDate >= todayStr &&
+        d.dueDate <= laterStr,
+    )
+    .sort((a, b) => (a.dueDate as string).localeCompare(b.dueDate as string))
+    .slice(0, limit)
+}
+
 export interface InvoicedVsPaidMonthly {
   /** "YYYY-MM" */
   key: string

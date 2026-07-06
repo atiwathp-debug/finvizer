@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   defaultDashboardDateRange,
+  dueSoonInvoices,
   filterDocumentsByDateRange,
   groupDocumentsByStatus,
   invoicedSalesTotal,
@@ -209,6 +210,85 @@ describe('unpaidInvoices', () => {
 
   it('returns an empty array when there are no unpaid invoices', () => {
     expect(unpaidInvoices([makeDocument({ documentType: 'INVOICE', status: 'PAID' })])).toEqual([])
+  })
+})
+
+describe('dueSoonInvoices', () => {
+  const now = new Date('2026-07-06T00:00:00.000Z')
+
+  it('includes invoices due today through today + 2 days, inclusive', () => {
+    const dueToday = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-06' })
+    const dueIn1 = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-07' })
+    const dueIn2 = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-08' })
+    const dueIn3 = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-09' })
+
+    const result = dueSoonInvoices([dueToday, dueIn1, dueIn2, dueIn3], 5, now)
+
+    expect(result.map((d) => d.id)).toEqual([dueToday.id, dueIn1.id, dueIn2.id])
+  })
+
+  it('excludes overdue invoices (dueDate before today)', () => {
+    const overdue = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-05' })
+    const dueToday = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-06' })
+
+    const result = dueSoonInvoices([overdue, dueToday], 5, now)
+
+    expect(result.map((d) => d.id)).toEqual([dueToday.id])
+  })
+
+  it('excludes invoices with a null dueDate', () => {
+    const noDueDate = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: null })
+    expect(dueSoonInvoices([noDueDate], 5, now)).toEqual([])
+  })
+
+  it('excludes DRAFT, PAID, and CANCELLED invoices even when dueDate is in range', () => {
+    const documents = [
+      makeDocument({ documentType: 'INVOICE', status: 'DRAFT', dueDate: '2026-07-07' }),
+      makeDocument({ documentType: 'INVOICE', status: 'PAID', dueDate: '2026-07-07' }),
+      makeDocument({ documentType: 'INVOICE', status: 'CANCELLED', dueDate: '2026-07-07' }),
+      makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-07' }),
+    ]
+
+    const result = dueSoonInvoices(documents, 5, now)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].status).toBe('APPROVED')
+  })
+
+  it('excludes non-INVOICE documents even when APPROVED and due-date-in-range', () => {
+    const documents = [
+      makeDocument({ documentType: 'QUOTATION', status: 'APPROVED', dueDate: '2026-07-07' }),
+      makeDocument({ documentType: 'RECEIPT', status: 'APPROVED', dueDate: '2026-07-07' }),
+      makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-07' }),
+    ]
+
+    const result = dueSoonInvoices(documents, 5, now)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].documentType).toBe('INVOICE')
+  })
+
+  it('sorts by dueDate ascending (soonest due first)', () => {
+    const dueIn2 = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-08' })
+    const dueToday = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-06' })
+    const dueIn1 = makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-07-07' })
+
+    const result = dueSoonInvoices([dueIn2, dueToday, dueIn1], 5, now)
+
+    expect(result.map((d) => d.id)).toEqual([dueToday.id, dueIn1.id, dueIn2.id])
+  })
+
+  it('caps the result at `limit`, defaulting to 5', () => {
+    const invoices = ['06', '07', '07', '07', '08', '08', '08', '08'].map((day) =>
+      makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: `2026-07-${day}` }),
+    )
+
+    expect(dueSoonInvoices(invoices, 5, now)).toHaveLength(5)
+    expect(dueSoonInvoices(invoices, 3, now)).toHaveLength(3)
+  })
+
+  it('returns an empty array when there are no due-soon invoices', () => {
+    expect(dueSoonInvoices([makeDocument({ documentType: 'INVOICE', status: 'APPROVED', dueDate: '2026-08-01' })], 5, now)).toEqual([])
   })
 })
 
