@@ -8,6 +8,7 @@ import {
   outstandingInvoiceTotal,
   paidSalesTotal,
   pendingApprovalCount,
+  pendingApprovalDocuments,
   topCustomersByAmount,
   topCustomersByFrequency,
   trackQuotationStatuses,
@@ -104,6 +105,32 @@ describe('pendingApprovalCount', () => {
       makeDocument({ status: 'PAID' }),
     ]
     expect(pendingApprovalCount(documents)).toBe(2)
+  })
+})
+
+describe('pendingApprovalDocuments', () => {
+  it('returns only DRAFT documents, newest createdAt first', () => {
+    const oldest = makeDocument({ status: 'DRAFT', createdAt: '2026-01-01T00:00:00.000Z' })
+    const middle = makeDocument({ status: 'DRAFT', createdAt: '2026-02-01T00:00:00.000Z' })
+    const newest = makeDocument({ status: 'DRAFT', createdAt: '2026-03-01T00:00:00.000Z' })
+    const approved = makeDocument({ status: 'APPROVED', createdAt: '2026-04-01T00:00:00.000Z' })
+
+    const result = pendingApprovalDocuments([oldest, approved, middle, newest])
+
+    expect(result.map((d) => d.id)).toEqual([newest.id, middle.id, oldest.id])
+  })
+
+  it('caps the result at `limit`, defaulting to 5', () => {
+    const drafts = Array.from({ length: 8 }, (_, i) =>
+      makeDocument({ status: 'DRAFT', createdAt: `2026-01-0${i + 1}T00:00:00.000Z` }),
+    )
+
+    expect(pendingApprovalDocuments(drafts)).toHaveLength(5)
+    expect(pendingApprovalDocuments(drafts, 3)).toHaveLength(3)
+  })
+
+  it('returns an empty array when there are no DRAFT documents', () => {
+    expect(pendingApprovalDocuments([makeDocument({ status: 'APPROVED' })])).toEqual([])
   })
 })
 

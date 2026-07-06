@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { BadgeCheck, FileClock, Wallet } from 'lucide-react'
 import {
   Bar,
@@ -28,6 +29,7 @@ import {
   invoicedVsPaidMonthly,
   paidSalesTotal,
   pendingApprovalCount,
+  pendingApprovalDocuments,
   topCustomersByAmount,
   topCustomersByFrequency,
   trackQuotationStatuses,
@@ -35,7 +37,7 @@ import {
   type QuotationTrackingStatus,
 } from '@/lib/reports/documentReports'
 import { formatThaiDate, formatTHB } from '@/lib/utils/currency'
-import type { DocumentRecord } from '@/types/document'
+import { documentTypeLabels, type DocumentRecord } from '@/types/document'
 import type { Customer } from '@/types/customer'
 
 const quotationTrackingLabels: Record<QuotationTrackingStatus, string> = {
@@ -96,6 +98,7 @@ export function DashboardPage() {
   const filtered = isLoading ? [] : filterDocumentsByDateRange(documents, dateRange.start, dateRange.end)
 
   const pendingCount = isLoading ? 0 : pendingApprovalCount(filtered)
+  const pendingDocuments = isLoading ? [] : pendingApprovalDocuments(filtered)
   const invoiced = isLoading ? 0 : invoicedSalesTotal(filtered)
   const paid = isLoading ? 0 : paidSalesTotal(filtered)
   const monthly = isLoading ? [] : invoicedVsPaidMonthly(filtered)
@@ -156,6 +159,41 @@ export function DashboardPage() {
             <StatCard label="ยอดขายที่ออกใบแจ้งหนี้" value={formatTHB(invoiced)} icon={BadgeCheck} tone="brand" />
             <StatCard label="ยอดขายที่มีการชำระเงินแล้ว" value={formatTHB(paid)} icon={Wallet} tone="brand" />
           </>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-medium text-ink">เอกสารที่รอการอนุมัติ</h2>
+        {isLoading ? (
+          <TableSkeleton rows={3} />
+        ) : pendingDocuments.length === 0 ? (
+          <EmptyState icon={FileClock} title="ไม่มีเอกสารรออนุมัติในช่วงวันที่นี้" />
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-line bg-white">
+            <ul className="divide-y divide-line">
+              {pendingDocuments.map((doc) => (
+                <li key={doc.id}>
+                  <Link
+                    to={`/documents/${doc.id}`}
+                    className="flex items-center justify-between gap-4 p-4 hover:bg-surface"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-ink">
+                        {documentTypeLabels[doc.documentType]} · {customerNameById.get(doc.customerId ?? '') ?? 'ลูกค้าที่ถูกลบ'}
+                      </p>
+                      <p className="text-xs text-ink-muted">{formatThaiDate(doc.issueDate)}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-ink">{formatTHB(doc.grandTotal)}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {pendingCount > pendingDocuments.length && (
+              <p className="border-t border-line px-4 py-2 text-xs text-ink-muted">
+                แสดงล่าสุด {pendingDocuments.length} รายการ
+              </p>
+            )}
+          </div>
         )}
       </div>
 

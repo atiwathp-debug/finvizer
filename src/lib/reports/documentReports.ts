@@ -35,6 +35,19 @@ export function pendingApprovalCount(documents: DocumentRecord[]): number {
   return documents.filter((d) => d.status === 'DRAFT').length
 }
 
+/**
+ * The most recently created documents awaiting approval, newest first,
+ * capped at `limit` — powers the Dashboard's "เอกสารที่รอการอนุมัติ" list.
+ * Sorted by createdAt (not issueDate, which the user can set to any date)
+ * so "newest" reflects actual recency of creation.
+ */
+export function pendingApprovalDocuments(documents: DocumentRecord[], limit = 5): DocumentRecord[] {
+  return documents
+    .filter((d) => d.status === 'DRAFT')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit)
+}
+
 /** Sum of grandTotal across INVOICE documents that have been issued (APPROVED or PAID) — "ยอดขายที่ออกใบแจ้งหนี้". */
 export function invoicedSalesTotal(documents: DocumentRecord[]): number {
   return documents
