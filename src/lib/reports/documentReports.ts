@@ -1,5 +1,18 @@
 import type { DocumentRecord, DocumentStatus } from '@/types/document'
 
+/**
+ * Excludes soft-deleted documents (deletedAt !== null) — the shared filter
+ * for document lists and dashboard sections (Pass 5D-B). Callers that need
+ * the full unfiltered set — e.g. trackQuotationStatuses' conversion-chain
+ * lookup, which must still find a downstream INVOICE even if it was later
+ * soft-deleted, so a converted quotation's badge doesn't misleadingly
+ * revert to "not yet converted" — must NOT run their input through this
+ * first.
+ */
+export function excludeDeleted(documents: DocumentRecord[]): DocumentRecord[] {
+  return documents.filter((d) => d.deletedAt === null)
+}
+
 /** Counts of each document status. */
 export function groupDocumentsByStatus(documents: DocumentRecord[]): Record<DocumentStatus, number> {
   const counts: Record<DocumentStatus, number> = { DRAFT: 0, APPROVED: 0, PAID: 0, CANCELLED: 0 }

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { listDocuments } from '@/lib/supabase/documents'
 import { listCustomers } from '@/lib/supabase/customers'
+import { excludeDeleted } from '@/lib/reports/documentReports'
 import { useCompanyStore } from '@/stores/companyStore'
 import { documentStatusLabels, documentTypeLabels, type DocumentRecord, type DocumentStatus, type DocumentType } from '@/types/document'
 import { formatTHB, formatThaiDate } from '@/lib/utils/currency'
@@ -88,7 +89,7 @@ export function DocumentsPage() {
   const filtered = useMemo(() => {
     if (!documents) return []
     const q = search.trim().toLowerCase()
-    return documents.filter((doc) => {
+    return excludeDeleted(documents).filter((doc) => {
       const customerName = doc.customerId ? (customerNameById.get(doc.customerId) ?? '') : ''
       const matchesSearch =
         q.length === 0 ||

@@ -25,6 +25,7 @@ import { useCompanyStore } from '@/stores/companyStore'
 import {
   defaultDashboardDateRange,
   dueSoonInvoices,
+  excludeDeleted,
   filterDocumentsByDateRange,
   invoicedSalesTotal,
   invoicedVsPaidMonthly,
@@ -97,18 +98,27 @@ export function DashboardPage() {
   }
 
   const isLoading = documents === null
-  const filtered = isLoading ? [] : filterDocumentsByDateRange(documents, dateRange.start, dateRange.end)
+  // Soft-deleted documents (Pass 5D-B) must not appear in any dashboard
+  // section below — excluded once here, upstream of the date-range filter,
+  // so every derived list/stat stays consistent. `documents` itself stays
+  // raw/unfiltered on purpose: it's still passed as-is to
+  // trackQuotationStatuses' conversion-chain lookup below, so a quotation's
+  // "converted to invoice" badge doesn't misleadingly revert just because
+  // the downstream invoice was later soft-deleted.
+  const visibleDocuments = isLoading ? [] : excludeDeleted(documents)
+  const filtered = isLoading ? [] : filterDocumentsByDateRange(visibleDocuments, dateRange.start, dateRange.end)
 
   const pendingCount = isLoading ? 0 : pendingApprovalCount(filtered)
   const pendingDocuments = isLoading ? [] : pendingApprovalDocuments(filtered)
   const unpaidInvoiceDocuments = isLoading ? [] : unpaidInvoices(filtered)
   const unpaidInvoiceCount = isLoading ? 0 : unpaidInvoices(filtered, Number.POSITIVE_INFINITY).length
-  // Intentionally scoped to the full, unfiltered `documents` list, not
-  // `filtered` — this is an operational "collect this now" reminder tied to
-  // today's date, not a historical metric, so it must never be hidden by
-  // the dashboard's issue-date-range picker.
-  const dueSoonDocuments = isLoading ? [] : dueSoonInvoices(documents)
-  const dueSoonCount = isLoading ? 0 : dueSoonInvoices(documents, Number.POSITIVE_INFINITY).length
+  // Intentionally scoped to the full, unfiltered-by-date-range
+  // `visibleDocuments` list (still excludes soft-deleted), not `filtered` —
+  // this is an operational "collect this now" reminder tied to today's
+  // date, not a historical metric, so it must never be hidden by the
+  // dashboard's issue-date-range picker.
+  const dueSoonDocuments = isLoading ? [] : dueSoonInvoices(visibleDocuments)
+  const dueSoonCount = isLoading ? 0 : dueSoonInvoices(visibleDocuments, Number.POSITIVE_INFINITY).length
   const invoiced = isLoading ? 0 : invoicedSalesTotal(filtered)
   const paid = isLoading ? 0 : paidSalesTotal(filtered)
   const monthly = isLoading ? [] : invoicedVsPaidMonthly(filtered)

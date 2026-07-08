@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultDashboardDateRange,
   dueSoonInvoices,
+  excludeDeleted,
   filterDocumentsByDateRange,
   groupDocumentsByStatus,
   invoicedSalesTotal,
@@ -54,6 +55,30 @@ function makeDocument(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
     ...overrides,
   }
 }
+
+describe('excludeDeleted', () => {
+  it('drops documents with a non-null deletedAt, keeps the rest', () => {
+    const kept = makeDocument({ deletedAt: null })
+    const deleted = makeDocument({ deletedAt: '2026-07-08T00:00:00.000Z', deletedBy: 'user-1' })
+
+    expect(excludeDeleted([kept, deleted])).toEqual([kept])
+  })
+
+  it('returns an empty array when every document is soft-deleted', () => {
+    const documents = [
+      makeDocument({ deletedAt: '2026-07-08T00:00:00.000Z' }),
+      makeDocument({ deletedAt: '2026-07-08T00:00:00.000Z' }),
+    ]
+
+    expect(excludeDeleted(documents)).toEqual([])
+  })
+
+  it('returns all documents unchanged when none are deleted', () => {
+    const documents = [makeDocument(), makeDocument()]
+
+    expect(excludeDeleted(documents)).toEqual(documents)
+  })
+})
 
 describe('groupDocumentsByStatus', () => {
   it('counts documents by status correctly, including zero for missing statuses', () => {
