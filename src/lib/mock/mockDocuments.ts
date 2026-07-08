@@ -6,6 +6,7 @@ import { renderPatternPreview } from '@/lib/validations/numberingPattern'
 import { calculateDocumentTotals, calculateInstallmentAmount } from '@/lib/calculations/documentTotals'
 import { appendMockAuditLog } from '@/lib/mock/mockAuditLogs'
 import { saveMockDocumentInstallments } from '@/lib/mock/mockDocumentInstallments'
+import { canDeleteDocument } from '@/lib/permissions/documentPermissions'
 import {
   canConvertDocumentType,
   documentTypeShortCode,
@@ -16,6 +17,7 @@ import {
 import type { DocumentFormValues } from '@/lib/validations/document'
 import type { DocumentInstallment } from '@/types/documentInstallment'
 import type { Customer } from '@/types/customer'
+import type { MemberRole } from '@/types/member'
 
 const DOCUMENTS_KEY = 'finvizer_mock_documents'
 const MAX_ATTEMPTS = 3
@@ -77,6 +79,8 @@ export function createMockDraftDocument(
     revisionNo: null,
     sourceDocumentId: null,
     installmentNumber: null,
+    deletedAt: null,
+    deletedBy: null,
   }
   writeDocuments([...readDocuments(), document])
   return document
@@ -165,6 +169,8 @@ export function saveMockDocumentDraft(
       revisionNo: null,
       sourceDocumentId: null,
       installmentNumber: input.installmentNumber ?? null,
+      deletedAt: null,
+      deletedBy: null,
     }
     writeDocuments([...readDocuments(), document])
     saveMockDocumentInstallments(document.id, buildMockInstallments(document.id, input, totals.grandTotal))
@@ -422,6 +428,8 @@ export function createMockDocumentRevision(documentId: string, createdBy: string
     createdAt: now,
     updatedAt: now,
     installmentNumber: null,
+    deletedAt: null,
+    deletedBy: null,
   }
   writeDocuments([...documents, revision])
 
@@ -503,6 +511,8 @@ export function createMockDocumentConversion(
     createdAt: now,
     updatedAt: now,
     installmentNumber: null,
+    deletedAt: null,
+    deletedBy: null,
   }
   writeDocuments([...documents, converted])
 
@@ -646,6 +656,62 @@ export function cancelMockDocument(documentId: string, actorId: string): Documen
     entityType: 'document',
     entityId: updated.id,
     metadata: { documentNumber: updated.documentNumber },
+  })
+
+  return updated
+}
+
+/**
+ * Mock Mode's equivalent of the real soft_delete_document() RPC (Pass
+ * 5C-B) — sets deletedAt/deletedBy only, never a hard delete (unlike
+ * deleteMockDraftDocument above, which is a genuinely different action:
+ * DRAFT-only hard removal, kept unchanged and still used by the existing
+ * delete-draft button). Reuses canDeleteDocument (documentPermissions.ts)
+ * for the role/status/type/converted-forward check instead of
+ * re-deriving it here, so the rule has exactly one TypeScript definition
+ * shared between real-mode's permission gating and Mock Mode's
+ * enforcement — only the SQL RPC is a separate (necessarily so) copy.
+ * "Converted forward" is computed the same way trackQuotationStatuses()
+ * does: any other document whose sourceDocumentId points at this one.
+ */
+export function softDeleteMockDocument(
+  documentId: string,
+  deletedBy: string,
+  currentUserRole: MemberRole | null,
+): DocumentRecord {
+  const documents = readDocuments()
+  const index = documents.findIndex((d) => d.id === documentId)
+  if (index === -1) {
+    throw new Error('ไม่พบเอกสาร')
+  }
+  const document = documents[index]
+
+  if (document.deletedAt !== null) {
+    throw new Error('เอกสารนี้ถูกลบไปแล้ว')
+  }
+  if (document.status === 'PAID') {
+    throw new Error('ไม่สามารถลบเอกสารที่ชำระแล้วได้')
+  }
+
+  const hasBeenConvertedForward = documents.some((d) => d.sourceDocumentId === document.id)
+  if (
+    !canDeleteDocument(document.documentType, document.status, document.deletedAt, hasBeenConvertedForward, currentUserRole)
+  ) {
+    throw new Error('คุณไม่มีสิทธิ์ลบเอกสารนี้')
+  }
+
+  const now = new Date().toISOString()
+  const updated: DocumentRecord = { ...document, deletedAt: now, deletedBy, updatedAt: now }
+  documents[index] = updated
+  writeDocuments(documents)
+
+  appendMockAuditLog({
+    companyId: updated.companyId,
+    actorId: deletedBy,
+    action: 'SOFT_DELETE_DOCUMENT',
+    entityType: 'document',
+    entityId: updated.id,
+    metadata: { documentType: updated.documentType, status: updated.status, documentNumber: updated.documentNumber },
   })
 
   return updated

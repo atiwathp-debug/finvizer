@@ -149,6 +149,16 @@ export interface DocumentRecord {
    * ordinary document.
    */
   installmentNumber: number | null
+  /**
+   * Set only by the soft-delete action (Pass 5C-B, soft_delete_document()
+   * RPC / softDeleteMockDocument()) — never a direct edit. Null for every
+   * document that hasn't been soft-deleted. A soft-deleted document is
+   * still a real row (never hard-deleted, so conversion/revision lineage
+   * pointing at it stays intact) — it's just excluded from normal
+   * lists/dashboard once a later pass adds that filtering.
+   */
+  deletedAt: string | null
+  deletedBy: string | null
 }
 
 /** "R1"/"R2"/... for a revision's revisionNo, or null if not (yet) an approved revision. */

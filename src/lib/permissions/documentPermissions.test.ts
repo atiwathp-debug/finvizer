@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { canApproveDocument, canEditDocument, canExportDocumentPdf, canMarkDocumentPaid } from './documentPermissions'
+import {
+  canApproveDocument,
+  canDeleteDocument,
+  canEditDocument,
+  canExportDocumentPdf,
+  canMarkDocumentPaid,
+} from './documentPermissions'
 import type { DocumentStatus, DocumentType } from '@/types/document'
 import type { MemberRole } from '@/types/member'
 
@@ -91,4 +97,70 @@ describe('canExportDocumentPdf', () => {
       expect(canExportDocumentPdf(status)).toBe(true)
     },
   )
+})
+
+describe('canDeleteDocument', () => {
+  it.each<MemberRole>(['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR'])(
+    'allows %s to delete a DRAFT of any document type',
+    (role) => {
+      expect(canDeleteDocument('INVOICE', 'DRAFT', null, false, role)).toBe(true)
+      expect(canDeleteDocument('RFQ', 'DRAFT', null, false, role)).toBe(true)
+    },
+  )
+
+  it('never allows VIEWER to delete anything, regardless of status/type/conversion', () => {
+    expect(canDeleteDocument('RFQ', 'DRAFT', null, false, 'VIEWER')).toBe(false)
+    expect(canDeleteDocument('QUOTATION', 'APPROVED', null, false, 'VIEWER')).toBe(false)
+    expect(canDeleteDocument('QUOTATION', 'APPROVED', null, true, 'VIEWER')).toBe(false)
+    expect(canDeleteDocument('INVOICE', 'APPROVED', null, false, 'VIEWER')).toBe(false)
+  })
+
+  it('does not allow a user with no membership in the company', () => {
+    expect(canDeleteDocument('RFQ', 'DRAFT', null, false, null)).toBe(false)
+  })
+
+  it.each<DocumentType>(['RFQ', 'QUOTATION'])(
+    'allows any non-VIEWER role to delete an APPROVED %s that has not been converted forward',
+    (documentType) => {
+      for (const role of ['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR'] as MemberRole[]) {
+        expect(canDeleteDocument(documentType, 'APPROVED', null, false, role)).toBe(true)
+      }
+    },
+  )
+
+  it.each<DocumentType>(['RFQ', 'QUOTATION'])(
+    'only allows OWNER/ACCOUNTANT to delete a %s that has been converted forward',
+    (documentType) => {
+      expect(canDeleteDocument(documentType, 'APPROVED', null, true, 'OWNER')).toBe(true)
+      expect(canDeleteDocument(documentType, 'APPROVED', null, true, 'ACCOUNTANT')).toBe(true)
+      expect(canDeleteDocument(documentType, 'APPROVED', null, true, 'ADMIN')).toBe(false)
+      expect(canDeleteDocument(documentType, 'APPROVED', null, true, 'EDITOR')).toBe(false)
+    },
+  )
+
+  it.each<DocumentType>(['INVOICE', 'TAX_INVOICE', 'RECEIPT', 'RECEIPT_TAX_INVOICE', 'CREDIT_NOTE', 'CREDIT_NOTE_TAX'])(
+    'only allows OWNER/ACCOUNTANT to delete a non-PAID %s (financial chain document)',
+    (documentType) => {
+      expect(canDeleteDocument(documentType, 'APPROVED', null, false, 'OWNER')).toBe(true)
+      expect(canDeleteDocument(documentType, 'APPROVED', null, false, 'ACCOUNTANT')).toBe(true)
+      expect(canDeleteDocument(documentType, 'APPROVED', null, false, 'ADMIN')).toBe(false)
+      expect(canDeleteDocument(documentType, 'APPROVED', null, false, 'EDITOR')).toBe(false)
+      expect(canDeleteDocument(documentType, 'CANCELLED', null, false, 'OWNER')).toBe(true)
+    },
+  )
+
+  it.each<DocumentType>(['INVOICE', 'TAX_INVOICE', 'RECEIPT', 'RECEIPT_TAX_INVOICE'])(
+    'never allows a PAID %s to be deleted, even by OWNER/ACCOUNTANT',
+    (documentType) => {
+      expect(canDeleteDocument(documentType, 'PAID', null, false, 'OWNER')).toBe(false)
+      expect(canDeleteDocument(documentType, 'PAID', null, false, 'ACCOUNTANT')).toBe(false)
+    },
+  )
+
+  it('never allows an already soft-deleted document to be deleted again, regardless of role/status/type', () => {
+    const deletedAt = '2026-07-01T00:00:00.000Z'
+    expect(canDeleteDocument('INVOICE', 'DRAFT', deletedAt, false, 'OWNER')).toBe(false)
+    expect(canDeleteDocument('QUOTATION', 'APPROVED', deletedAt, false, 'OWNER')).toBe(false)
+    expect(canDeleteDocument('RFQ', 'APPROVED', deletedAt, true, 'ACCOUNTANT')).toBe(false)
+  })
 })

@@ -17,6 +17,7 @@ import {
   listMockDocumentsForCompany,
   markMockDocumentPaid,
   saveMockDocumentDraft,
+  softDeleteMockDocument,
 } from './mockDocuments'
 import type { DocumentFormValues } from '@/lib/validations/document'
 import type { DocumentRecord } from '@/types/document'
@@ -256,6 +257,8 @@ describe('approveMockDraftDocument', () => {
       revisionNo: null,
       sourceDocumentId: null,
       installmentNumber: null,
+      deletedAt: null,
+      deletedBy: null,
     }
     localStorage.setItem(
       'finvizer_mock_documents',
@@ -375,6 +378,109 @@ describe('deleteMockDraftDocument', () => {
     deleteMockDraftDocument(draft.id)
 
     expect(listMockDocumentInstallments(draft.id)).toHaveLength(0)
+  })
+})
+
+describe('softDeleteMockDocument', () => {
+  it('soft-deletes a DRAFT — sets deletedAt/deletedBy but does NOT remove it from the list (unlike deleteMockDraftDocument)', () => {
+    const company = setupCompany()
+    const doc = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
+
+    const deleted = softDeleteMockDocument(doc.id, 'user-1', 'EDITOR')
+
+    expect(deleted.deletedAt).not.toBeNull()
+    expect(deleted.deletedBy).toBe('user-1')
+    expect(deleted.status).toBe('DRAFT') // status untouched
+    expect(listMockDocumentsForCompany(company.id)).toHaveLength(1) // still present, not hard-deleted
+    expect(getMockDocumentById(doc.id)?.deletedAt).not.toBeNull()
+  })
+
+  it('allows any non-VIEWER role to soft-delete an APPROVED QUOTATION that has not been converted forward', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const approved = approveMockDraftDocument(createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id, 'user-1')
+
+    const deleted = softDeleteMockDocument(approved.id, 'user-1', 'EDITOR')
+
+    expect(deleted.deletedAt).not.toBeNull()
+    expect(deleted.documentNumber).toBe(approved.documentNumber) // number untouched
+    expect(deleted.status).toBe('APPROVED') // status untouched
+  })
+
+  it('refuses VIEWER, regardless of document status/type', () => {
+    const company = setupCompany()
+    const draft = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
+
+    expect(() => softDeleteMockDocument(draft.id, 'user-1', 'VIEWER')).toThrow('คุณไม่มีสิทธิ์ลบเอกสารนี้')
+  })
+
+  it('only allows OWNER/ACCOUNTANT to soft-delete a QUOTATION that has been converted forward — EDITOR/ADMIN are refused', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const quotation = approveMockDraftDocument(createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id, 'user-1')
+    createMockDocumentConversion(quotation.id, 'INVOICE', 'user-1')
+
+    expect(() => softDeleteMockDocument(quotation.id, 'user-1', 'EDITOR')).toThrow('คุณไม่มีสิทธิ์ลบเอกสารนี้')
+    expect(() => softDeleteMockDocument(quotation.id, 'user-1', 'ADMIN')).toThrow('คุณไม่มีสิทธิ์ลบเอกสารนี้')
+
+    const deleted = softDeleteMockDocument(quotation.id, 'user-1', 'OWNER')
+    expect(deleted.deletedAt).not.toBeNull()
+  })
+
+  it('only allows OWNER/ACCOUNTANT to soft-delete a non-PAID financial chain document (e.g. an approved INVOICE) — EDITOR/ADMIN are refused', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const invoice = approveMockDraftDocument(createMockDraftDocument(company.id, 'INVOICE', 'user-1').id, 'user-1')
+
+    expect(() => softDeleteMockDocument(invoice.id, 'user-1', 'EDITOR')).toThrow('คุณไม่มีสิทธิ์ลบเอกสารนี้')
+    expect(() => softDeleteMockDocument(invoice.id, 'user-1', 'ADMIN')).toThrow('คุณไม่มีสิทธิ์ลบเอกสารนี้')
+
+    const deleted = softDeleteMockDocument(invoice.id, 'user-1', 'ACCOUNTANT')
+    expect(deleted.deletedAt).not.toBeNull()
+  })
+
+  it('never allows a PAID document to be deleted, even by OWNER', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const approved = approveMockDraftDocument(createMockDraftDocument(company.id, 'RECEIPT', 'user-1').id, 'user-1')
+    const paid = markMockDocumentPaid(approved.id, 'user-1')
+
+    expect(() => softDeleteMockDocument(paid.id, 'user-1', 'OWNER')).toThrow('ไม่สามารถลบเอกสารที่ชำระแล้วได้')
+  })
+
+  it('refuses to soft-delete an already soft-deleted document again', () => {
+    const company = setupCompany()
+    const draft = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
+    softDeleteMockDocument(draft.id, 'user-1', 'OWNER')
+
+    expect(() => softDeleteMockDocument(draft.id, 'user-1', 'OWNER')).toThrow('เอกสารนี้ถูกลบไปแล้ว')
+  })
+
+  it('throws for an unknown document id', () => {
+    expect(() => softDeleteMockDocument('missing-id', 'user-1', 'OWNER')).toThrow('ไม่พบเอกสาร')
+  })
+
+  it('never touches document_number, source_document_id, or parent_document_id', () => {
+    const company = setupCompany()
+    saveMockNumberingSetting(company.id, null, '{DOC_TYPE}-{YYYY}-{RUNNING:4}', 'MONTHLY')
+    const quotation = approveMockDraftDocument(createMockDraftDocument(company.id, 'QUOTATION', 'user-1').id, 'user-1')
+    const invoice = createMockDocumentConversion(quotation.id, 'INVOICE', 'user-1')
+
+    const deleted = softDeleteMockDocument(invoice.id, 'user-1', 'OWNER')
+
+    expect(deleted.documentNumber).toBe(invoice.documentNumber)
+    expect(deleted.sourceDocumentId).toBe(quotation.id)
+    expect(deleted.parentDocumentId).toBeNull()
+  })
+
+  it('records a SOFT_DELETE_DOCUMENT audit entry', () => {
+    const company = setupCompany()
+    const draft = createMockDraftDocument(company.id, 'QUOTATION', 'user-1')
+
+    const deleted = softDeleteMockDocument(draft.id, 'user-1', 'OWNER')
+
+    const logs = listMockAuditLogsForEntity('document', deleted.id)
+    expect(logs.map((l) => l.action)).toContain('SOFT_DELETE_DOCUMENT')
   })
 })
 

@@ -30,6 +30,8 @@ const document: DocumentRecord = {
   revisionNo: null,
   sourceDocumentId: null,
   installmentNumber: null,
+  deletedAt: null,
+  deletedBy: null,
 }
 
 describe('documentPdfFileName', () => {

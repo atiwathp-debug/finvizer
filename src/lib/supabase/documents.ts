@@ -12,6 +12,7 @@ import {
   listMockDocumentsForCompany,
   markMockDocumentPaid,
   saveMockDocumentDraft,
+  softDeleteMockDocument,
 } from '@/lib/mock/mockDocuments'
 import { calculateDocumentTotals, calculateInstallmentAmount } from '@/lib/calculations/documentTotals'
 import { logError } from '@/lib/utils/debugLog'
@@ -19,6 +20,7 @@ import type { DocumentRow } from '@/types/database'
 import type { DocumentRecord, DocumentType, LineItem } from '@/types/document'
 import type { DocumentFormValues } from '@/lib/validations/document'
 import type { Customer } from '@/types/customer'
+import type { MemberRole } from '@/types/member'
 
 interface DocumentItemRow {
   id: string
@@ -76,6 +78,8 @@ function mapDocumentRow(row: DocumentRow, items: LineItem[] = []): DocumentRecor
     revisionNo: row.revision_no,
     sourceDocumentId: row.source_document_id,
     installmentNumber: row.installment_number,
+    deletedAt: row.deleted_at,
+    deletedBy: row.deleted_by,
   }
 }
 
@@ -463,6 +467,41 @@ export async function listDocumentConversions(sourceDocumentId: string): Promise
     return (data ?? []).map((row) => mapDocumentRow(row))
   } catch (error) {
     logError('documents.listDocumentConversions', error, { sourceDocumentId })
+    throw error
+  }
+}
+
+/**
+ * Soft-deletes a document (Pass 5C-B) — sets deleted_at/deleted_by only,
+ * never status/document_number/paid fields/conversion-or-revision lineage.
+ * Real mode calls the `soft_delete_document` RPC (security definer; see
+ * supabase/migrations/20260723120000_soft_delete_document_rpc.sql), which
+ * re-validates role/status/type/conversion-forward eligibility server-side
+ * and self-logs a SOFT_DELETE_DOCUMENT audit event — same "no separate
+ * client-side logAuditEvent call" reasoning as approveDocument. `actorId`
+ * and `currentUserRole` are only used by the Mock Mode branch (to
+ * self-check eligibility and self-log there too, mirroring the RPC) — the
+ * real RPC always derives both from auth.uid()/the caller's own company
+ * membership, never a client-supplied value, same asymmetry as
+ * markDocumentPaid's `actorId` parameter above. Does NOT replace
+ * deleteDraftDocument — that hard-delete path (documents_delete_draft_only)
+ * still backs the existing Draft-only delete button unchanged.
+ */
+export async function softDeleteDocument(
+  documentId: string,
+  actorId: string,
+  currentUserRole: MemberRole | null,
+): Promise<DocumentRecord> {
+  if (isMockMode) return softDeleteMockDocument(documentId, actorId, currentUserRole)
+
+  try {
+    const { data, error } = await requireSupabase().rpc('soft_delete_document', {
+      p_document_id: documentId,
+    })
+    if (error) throw error
+    return mapDocumentRow(data)
+  } catch (error) {
+    logError('documents.softDeleteDocument', error, { documentId })
     throw error
   }
 }

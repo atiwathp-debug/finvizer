@@ -115,6 +115,12 @@ export type DocumentRow = {
   // Production readiness pass 2 addition — see
   // supabase/migrations/20260717120000_document_installments.sql.
   installment_number: number | null
+  // Pass 5B addition — see
+  // supabase/migrations/20260722120000_document_soft_delete.sql. Only ever
+  // set by the soft_delete_document() RPC (Pass 5C-B), never a direct
+  // client UPDATE.
+  deleted_at: string | null
+  deleted_by: string | null
 }
 
 export interface Database {
@@ -700,6 +706,16 @@ export interface Database {
         Args: {
           p_document_id: string
           p_target_type: string
+        }
+        Returns: DocumentRow
+      }
+      // Pass 5C-B: soft-deletes a document (sets deleted_at/deleted_by
+      // only — never touches status/document_number/paid fields/
+      // conversion-or-revision lineage) — see
+      // supabase/migrations/20260723120000_soft_delete_document_rpc.sql.
+      soft_delete_document: {
+        Args: {
+          p_document_id: string
         }
         Returns: DocumentRow
       }

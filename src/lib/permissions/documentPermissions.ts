@@ -5,6 +5,18 @@ const APPROVER_ROLES: MemberRole[] = ['OWNER', 'ADMIN', 'ACCOUNTANT']
 const EDITOR_ROLES: MemberRole[] = ['OWNER', 'ADMIN', 'ACCOUNTANT', 'EDITOR']
 /** Only these document types represent money actually collected — see mark_document_paid() in supabase/migrations/20260713120000_paid_cascade.sql. */
 const PAYABLE_DOCUMENT_TYPES: DocumentType[] = ['RECEIPT', 'RECEIPT_TAX_INVOICE']
+/**
+ * Only these two roles may delete a converted RFQ/QUOTATION or any
+ * financial chain document (Pass 5C-A design) — deliberately narrower than
+ * APPROVER_ROLES: ADMIN is excluded here. No mapping anywhere in this
+ * codebase treats ADMIN as OWNER-equivalent (company ownership is
+ * `companies.owner_id`, entirely separate from `company_members.role` —
+ * see is_company_owner() in supabase/migrations/20260702120300_rls_helper_functions.sql),
+ * so ADMIN stays limited to Draft and not-yet-converted RFQ/QUOTATION only.
+ */
+const CHAIN_DELETE_ROLES: MemberRole[] = ['OWNER', 'ACCOUNTANT']
+/** RFQ/QUOTATION are source/pre-quotation documents (Pass 5C-A) — everything else in DocumentType is a financial chain document for delete-permission purposes. */
+const SOURCE_TIER_DOCUMENT_TYPES: DocumentType[] = ['RFQ', 'QUOTATION']
 
 /**
  * OWNER/ADMIN/ACCOUNTANT can approve a Draft, mark an Approved document as
@@ -52,4 +64,43 @@ export function canMarkDocumentPaid(
  */
 export function canExportDocumentPdf(status: DocumentStatus): boolean {
   return status !== 'DRAFT'
+}
+
+/**
+ * Soft-delete eligibility (Pass 5C-A/5C-B design, mirrors the role/status/
+ * type/chain checks inside soft_delete_document() — see
+ * supabase/migrations/20260723120000_soft_delete_document_rpc.sql — so the
+ * UI never offers a delete action the RPC would just reject):
+ *
+ * - VIEWER can never delete anything.
+ * - An already soft-deleted document can never be deleted again.
+ * - A PAID document can never be deleted, regardless of role or type — a
+ *   financial chain document is the only type that ever reaches PAID
+ *   (mark_document_paid()'s cascade), so this only actually applies there,
+ *   but the check runs before any type/role branching so it can't be
+ *   bypassed by either.
+ * - DRAFT (any document type): any non-VIEWER role.
+ * - RFQ/QUOTATION not yet converted forward (`hasBeenConvertedForward`,
+ *   computed by the caller the same way trackQuotationStatuses() does —
+ *   documents.some(d => d.sourceDocumentId === thisDocument.id)): any
+ *   non-VIEWER role.
+ * - RFQ/QUOTATION already converted forward, or any other (financial
+ *   chain) document type that isn't PAID: OWNER/ACCOUNTANT only.
+ */
+export function canDeleteDocument(
+  documentType: DocumentType,
+  status: DocumentStatus,
+  deletedAt: string | null,
+  hasBeenConvertedForward: boolean,
+  role: MemberRole | null,
+): boolean {
+  if (role === null || role === 'VIEWER') return false
+  if (deletedAt !== null) return false
+  if (status === 'PAID') return false
+  if (status === 'DRAFT') return canEditDocument(role)
+
+  if (SOURCE_TIER_DOCUMENT_TYPES.includes(documentType)) {
+    return hasBeenConvertedForward ? CHAIN_DELETE_ROLES.includes(role) : canEditDocument(role)
+  }
+  return CHAIN_DELETE_ROLES.includes(role)
 }

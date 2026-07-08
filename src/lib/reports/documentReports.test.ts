@@ -49,6 +49,8 @@ function makeDocument(overrides: Partial<DocumentRecord> = {}): DocumentRecord {
     revisionNo: null,
     sourceDocumentId: null,
     installmentNumber: null,
+    deletedAt: null,
+    deletedBy: null,
     ...overrides,
   }
 }
