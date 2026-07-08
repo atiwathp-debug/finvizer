@@ -23,6 +23,7 @@ import {
   listDocumentConversions,
   listDocumentRevisions,
   markDocumentPaid,
+  softDeleteDocument,
 } from '@/lib/supabase/documents'
 import { listAuditLogsForEntity, logAuditEvent } from '@/lib/supabase/auditLog'
 import { logError } from '@/lib/utils/debugLog'
@@ -31,6 +32,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useCompanyStore } from '@/stores/companyStore'
 import {
   canApproveDocument,
+  canDeleteDocument,
   canEditDocument,
   canExportDocumentPdf,
   canMarkDocumentPaid,
@@ -68,6 +70,8 @@ export function DocumentDetailPage() {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [softDeleteConfirmOpen, setSoftDeleteConfirmOpen] = useState(false)
+  const [isSoftDeleting, setIsSoftDeleting] = useState(false)
   const [convertDialogOpen, setConvertDialogOpen] = useState(false)
   const [convertTargetType, setConvertTargetType] = useState<DocumentType | ''>('')
   const [convertInstallmentNo, setConvertInstallmentNo] = useState<number | ''>('')
@@ -212,6 +216,29 @@ export function DocumentDetailPage() {
     }
   }
 
+  const handleSoftDelete = async () => {
+    if (!id || !user) return
+    setIsSoftDeleting(true)
+    try {
+      // soft_delete_document (real mode) and softDeleteMockDocument both
+      // self-log a SOFT_DELETE_DOCUMENT audit event — same "no separate
+      // client-side logAuditEvent call" pattern as handleApprove/handleCancel
+      // above, unlike handleDelete's deleteDraftDocument (a bare row delete
+      // with no self-logging).
+      await softDeleteDocument(id, user.id, currentUserRole)
+      toast({ title: 'ลบเอกสารสำเร็จ', tone: 'success' })
+      navigate('/documents')
+    } catch (error) {
+      toast({
+        title: 'ลบเอกสารไม่สำเร็จ',
+        description: error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง',
+        tone: 'error',
+      })
+    } finally {
+      setIsSoftDeleting(false)
+    }
+  }
+
   const handleCreateRevision = async () => {
     if (!id || !user) return
     setIsActing(true)
@@ -301,6 +328,13 @@ export function DocumentDetailPage() {
   const availableConversionTargets = documentConversionMap[document.documentType].filter(
     (targetType) => !conversions.some((converted) => converted.documentType === targetType),
   )
+  // DRAFT keeps its own dedicated hard-delete flow ("ลบฉบับร่าง" above) —
+  // excluded here even though canDeleteDocument's DRAFT branch would
+  // otherwise allow it, so the two delete actions never appear together.
+  const canSoftDelete =
+    document.status !== 'DRAFT' &&
+    document.deletedAt === null &&
+    canDeleteDocument(document.documentType, document.status, document.deletedAt, conversions.length > 0, currentUserRole)
   const totals: DocumentTotalsResult = {
     itemAmounts: document.items.map((item) => item.amount),
     subtotal: document.subtotal,
@@ -360,6 +394,17 @@ export function DocumentDetailPage() {
                 title="เอกสารที่มีเลขที่เอกสารแล้วไม่สามารถลบได้ — ยกเลิกจะรักษาเลขที่เอกสารและประวัติการใช้งานไว้"
               >
                 ยกเลิกเอกสาร
+              </Button>
+            )}
+            {canSoftDelete && (
+              <Button
+                variant="danger"
+                onClick={() => setSoftDeleteConfirmOpen(true)}
+                disabled={isSoftDeleting}
+                title="เอกสารนี้จะไม่แสดงในรายการเอกสารและแดชบอร์ดอีกต่อไป ข้อมูลจะยังถูกเก็บไว้ในระบบ"
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                ลบเอกสาร
               </Button>
             )}
             {document.status === 'APPROVED' && document.parentDocumentId === null && canEdit && (
@@ -542,6 +587,16 @@ export function DocumentDetailPage() {
         confirmLabel="ลบฉบับร่าง"
         tone="danger"
         onConfirm={() => void handleDelete()}
+      />
+
+      <ConfirmDialog
+        open={softDeleteConfirmOpen}
+        onOpenChange={setSoftDeleteConfirmOpen}
+        title="ลบเอกสาร"
+        description="เอกสารนี้จะไม่แสดงในรายการเอกสารและแดชบอร์ดอีกต่อไป ข้อมูลจะยังถูกเก็บไว้ในระบบ ไม่ได้ลบถาวร ต้องการดำเนินการต่อหรือไม่"
+        confirmLabel="ลบเอกสาร"
+        tone="danger"
+        onConfirm={() => void handleSoftDelete()}
       />
 
       <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
